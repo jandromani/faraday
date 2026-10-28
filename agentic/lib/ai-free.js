@@ -64,21 +64,25 @@ function limitText(v, max=160) {
 export function makeGraphAdvisoryData(store) {
   const graph=store.snapshot();
   // No event payloads, agent prompts, credentials or tool argument values are stored/exported.
+  const visible=graph.nodes.slice(0,150);
+  const ids=new Map(visible.map((n,i)=>[n.id,'N'+(i+1)]));
   return {
-    type:'faraday-graph-metadata',
-    totals:graph.stats,
-    nodes:graph.nodes.slice(0,150).map(x=>({id:limitText(x.id),type:limitText(x.type),label:limitText(x.label)})),
-    edges:graph.edges.slice(0,250).map(x=>({from:limitText(x.src),to:limitText(x.dst),relation:limitText(x.relation)})),
+    type:'faraday-graph-metadata',totals:graph.stats,
+    nodes:visible.map(x=>({id:ids.get(x.id),type:limitText(x.type,30)})),
+    edges:graph.edges.filter(x=>ids.has(x.src)&&ids.has(x.dst)).slice(0,250)
+      .map(x=>({from:ids.get(x.src),to:ids.get(x.dst),relation:limitText(x.relation,30)})),
     truncated:graph.nodes.length>150||graph.edges.length>250,
+    redaction:'Ephemeral node identifiers, no raw names or labels',
   };
 }
 
 export function makeContractAdvisoryData(base,current) {
   const diff=compareSnapshots(readSnapshot(base),readSnapshot(current));
   return {type:'faraday-contract-diff',summary:diff.summary,
-    changes:diff.entries.slice(0,100).map(e=>({server:limitText(e.server),tool:limitText(e.tool),
-      potentialClients:(e.potentialClients??[]).slice(0,20).map(s=>limitText(s)),
-      changes:e.changes?.slice(0,20).map(c=>({severity:limitText(c.severity),path:limitText(c.path),message:limitText(c.message)}))})),
+    changes:diff.entries.slice(0,100).map((e,i)=>({server:'redacted-server-'+(i+1),tool:'redacted-tool-'+(i+1),
+      potentialClientCount:(e.potentialClients??[]).length,
+      changes:e.changes?.slice(0,20).map(c=>({severity:limitText(c.severity,16),
+        category:typeof c.path==='string'&&c.path.includes('required')?'required-field-change':'schema-change'}))})),
     truncated:diff.entries.length>100};
 }
 
@@ -110,6 +114,7 @@ export async function explainFree({metadata, model=DEFAULT_MODEL,
       max_tokens:MAX_OUTPUT_TOKENS,stream:false}),
   });
   const body=await readJson(response);
+  if(body.usage?.cost!=null && Number(body.usage.cost)>0)throw new Error('Provider reported a nonzero cost; paid routing is forbidden');
   if (typeof body.choices?.[0]?.message?.content !== 'string') throw new Error('Unexpected free model response');
   return {provider:'openrouter',model:limitText(body.model||model),text:body.choices[0].message.content,
     note:'Advisory only; never an authorization decision. Provider may rate-limit free requests.'};
