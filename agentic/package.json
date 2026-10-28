@@ -1,6 +1,6 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "FARADAY: plug-and-use local MCP graph, stdio/HTTP observation, privacy-first contracts and reversible installation",
   "type": "module",
@@ -19,12 +19,15 @@
   "exports": {
     "./contracts": "./lib/contracts.js",
     "./ai-free": "./lib/ai-free.js",
-    "./http-bridge": "./lib/http-bridge.js"
+    "./http-bridge": "./lib/http-bridge.js",
+    "./shield": "./lib/security-policy.js",
+    "./egress": "./lib/egress-guard.js"
   },
   "files": [
     "bin",
     "lib",
     "web",
-    "README.md"
+    "README.md",
+    "SECURITY.md"
   ]
 }
