@@ -22,9 +22,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Test Graph, v0.9 authority, contracts, synthetic lab and package
+      - name: Test Graph, v0.95 secure pilot, v0.9 authority, contracts, synthetic lab and package
         working-directory: agentic
         run: npm run test:all
+      - name: Verify v0.95 protected MCP pilot eval is reproducible
+        working-directory: agentic
+        run: |
+          node bin/faraday.js pilot eval --limit 100 --out /tmp/faraday-v095-pilot-evals.json
+          node -e "const r=require('/tmp/faraday-v095-pilot-evals.json');if(r.summary.total!==100||r.summary.passed!==100||r.summary.failed!==0)process.exit(1)"
       - name: Export static compatibility and synthetic lab artifacts
         working-directory: agentic
         run: |
@@ -44,6 +49,7 @@ jobs:
             /tmp/faraday-v09-evals.json
             /tmp/faraday-v09-authority-evals.json
             /tmp/faraday-v09-compat.json
+            /tmp/faraday-v095-pilot-evals.json
           retention-days: 14
 
   network-isolation:
@@ -60,3 +66,6 @@ jobs:
       - name: Demonstrate isolated dummy-agent network and authority flow
         working-directory: agentic
         run: npm run lab:docker
+      - name: Verify v0.95 MCP pilot in Docker, including receipt signing and replay
+        working-directory: agentic
+        run: npm run pilot:docker

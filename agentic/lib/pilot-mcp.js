@@ -1,0 +1,96 @@
+/** Secure Pilot MCP HTTP endpoint.
+ * Limited JSON-response, single-tool subset of MCP (2025-11-25 / 2026-07-28).
+ * Security headers are injected by a TRUSTED harness/adapter, never by an LLM.
+ * Not full MCP OAuth, attested workloads, or arbitrary remote tool isolation.
+ */
+import http from 'node:http';
+import {AuthorityError,canonical,digest} from './authority.js';
+import {readJson} from './authority-gateway.js';
+import {signReceipt} from './pilot-receipts.js';
+const VERSION='2026-07-28',PREVIOUS='2025-11-25';
+const PATH='/mcp';
+const json=(res,status,data)=>{const bytes=Buffer.from(JSON.stringify(data));res.writeHead(status,{'content-type':'application/json','content-length':bytes.length,'cache-control':'no-store','x-content-type-options':'nosniff'});res.end(bytes);};
+const rpcError=(id,code,message)=>({jsonrpc:'2.0',id,error:{code,message}});
+const rpcResult=(id,result)=>({jsonrpc:'2.0',id,result});
+const TOOL_DESCRIPTION='Simulate a fake invoice payment. Synthetic fixture only; never transfers money.';
+const TOOLS=[{name:'pay_invoice',description:TOOL_DESCRIPTION,inputSchema:{type:'object',additionalProperties:false,
+  properties:{amount_cents:{type:'integer',minimum:1,maximum:20000},currency:{type:'string',enum:['EUR']},recipient:{type:'string',enum:['supplier_demo']}},required:['amount_cents','currency','recipient']}}];
+const decode=(header)=>{
+  if(typeof header!=='string'||header.length>15000||!/^[A-Za-z0-9_-]+$/.test(header))throw new AuthorityError('invalid-proof-header');
+  const bytes=Buffer.from(header,'base64url');if(bytes.toString('base64url')!==header||bytes.length>8192)throw new AuthorityError('invalid-proof-header');
+  let x;try{x=JSON.parse(bytes.toString('utf8'));}catch{throw new AuthorityError('invalid-proof-header');}
+  return x;
+};
+async function bounded(response,maxBytes=8192){
+  const claimed=Number(response.headers.get('content-length'));
+  if(Number.isFinite(claimed)&&claimed>maxBytes)throw new Error('oversized-upstream');
+  const reader=response.body?.getReader();if(!reader)throw new Error('invalid-upstream');
+  const chunks=[];let size=0;
+  try{while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>maxBytes)throw new Error('oversized-upstream');chunks.push(value);}}
+  finally{reader.releaseLock();}
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,receiptPrivatePem,
+      fetchFn=fetch,onEvent=()=>{},now=()=>Math.floor(Date.now()/1000),allowedOrigins=[]}){
+  const endpoint=new URL(backendUrl);
+  if(!['http:','https:'].includes(endpoint.protocol)||endpoint.pathname!=='/internal/execute'||endpoint.search||endpoint.hash||endpoint.username||endpoint.password)throw Error('Fixed backend endpoint required');
+  if(typeof backendSecret!=='string'||backendSecret.length<32||!gate||!journal||typeof journal.reserve!=='function'||!receiptPrivatePem)throw Error('Secure Pilot requires gate, journal, receipt key and service credential');
+  return http.createServer(async(req,res)=>{
+    if(req.url==='/healthz'&&req.method==='GET')return json(res,200,{service:'faraday-secure-pilot',status:'ok'});
+    if(req.url!==PATH||req.method!=='POST')return json(res,404,{error:'not-found'});
+    const origin=req.headers.origin;
+    if(origin&&!allowedOrigins.includes(origin))return json(res,403,{error:'invalid-origin'});
+    let msg;
+    try{msg=await readJson(req);
+      if(msg.jsonrpc!=='2.0'||(!Number.isSafeInteger(msg.id)&&typeof msg.id!=='string')||typeof msg.method!=='string')throw Error('invalid-rpc');
+      if(msg.id===null||msg.method.length>100)throw Error('invalid-rpc');
+      if(msg.method==='tools/call' || msg.method==='tools/list'){
+        const ver=req.headers['mcp-protocol-version'];
+        if(ver===VERSION){
+          if(msg.params?._meta?.['io.modelcontextprotocol/protocolVersion']!==VERSION ||
+             req.headers['mcp-method']!==msg.method ||
+             (msg.method==='tools/call'&&req.headers['mcp-name']!==msg.params?.name))throw Error('protocol-header-mismatch');
+        }else if(ver!==PREVIOUS)throw Error('unsupported-protocol-version');
+      }
+    }catch{return json(res,400,rpcError(msg?.id??null,-32600,'Invalid MCP request'));}
+    if(msg.method==='initialize')return json(res,200,rpcResult(msg.id,{protocolVersion:msg.params?.protocolVersion===PREVIOUS?PREVIOUS:VERSION,
+      capabilities:{tools:{}},serverInfo:{name:'faraday-secure-pilot',version:'0.95.0'}}));
+    if(msg.method==='tools/list')return json(res,200,rpcResult(msg.id,{tools:TOOLS}));
+    if(msg.method!=='tools/call')return json(res,404,rpcError(msg.id,-32601,'Method not found'));
+    let auth;
+    try{
+      if(msg.params?.name!=='pay_invoice'||!msg.params.arguments||typeof msg.params.arguments!=='object'||Array.isArray(msg.params.arguments))throw new AuthorityError('unknown-tool');
+      const capability=req.headers['x-faraday-capability'];
+      const proof=decode(req.headers['x-faraday-proof']);
+      if(typeof capability!=='string'||capability.length>16000)throw new AuthorityError('invalid-capability');
+      // Authorization covers exact typed arguments from the wire, not text suggested by model.
+      if(digest(msg.params.arguments)!==digest(proof.payload?.args))throw new AuthorityError('argument-mismatch');
+      auth=gate.authorize({capability,proof});
+      if(auth.tool!=='pay_invoice'||auth.resource!=='invoice:demo'||auth.action!=='pay')throw new AuthorityError('invalid-scope');
+      journal.reserve(auth.jti,digest({tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args}));
+    }catch(e){try{onEvent({status:'denied',reason:e instanceof AuthorityError?e.code:'invalid-request'});}catch{}
+      return json(res,403,rpcError(msg.id,-32003,'FARADAY authority denied'));}
+    let outcome='upstream-uncertain',responseHash=null;
+    try{
+      const upstream=await fetchFn(endpoint,{method:'POST',redirect:'error',signal:AbortSignal.timeout(3000),headers:{
+        'content-type':'application/json','authorization':`Bearer ${backendSecret}`},body:JSON.stringify({
+        tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args,operationId:auth.jti})});
+      const result=await bounded(upstream);
+      const expected=digest({tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args});
+      if(upstream.status===200 && result.status==='simulated' && result.operationId===auth.jti && result.requestHash===expected){
+        outcome='simulated';responseHash=digest({status:result.status,operationId:result.operationId,requestHash:result.requestHash});
+      }else outcome='upstream-rejected';
+    }catch{outcome='upstream-uncertain';}
+    let receipt;
+    try{
+      receipt=signReceipt({privatePem:receiptPrivatePem,claims:{version:1,operationId:auth.jti,agent:auth.agent,
+        tool:auth.tool,resource:auth.resource,action:auth.action,argsHash:digest(auth.args),rule:auth.rule,
+        outcome,responseHash,observedAt:now()}});
+      journal.finish(auth.jti,outcome,receipt);
+      onEvent({status:outcome,tool:auth.tool,agent:auth.agent,operationId:auth.jti});
+    }catch{return json(res,503,rpcError(msg.id,-32004,'Execution journal unavailable'));}
+    if(outcome!=='simulated')return json(res,503,rpcError(msg.id,-32005,`Backend outcome: ${outcome}; manual reconciliation required`));
+    return json(res,200,rpcResult(msg.id,{content:[{type:'text',text:'Synthetic invoice operation simulated; no real payment occurred.'}],
+      isError:false,structuredContent:{status:outcome,operationId:auth.jti,receipt}}));
+  });
+}
