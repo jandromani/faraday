@@ -22,9 +22,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Run security, contracts, plug-and-use tests and package smoke
+      - name: Run Graph, Shield, Contracts, TrustDiff and Lab tests
         working-directory: agentic
         run: npm run test:all
+      - name: Verify v0.8 synthetic lab and static MCP compatibility
+        working-directory: agentic
+        run: |
+          node bin/faraday.js compat --root . > /tmp/faraday-v08-compat.json
+          node bin/faraday.js lab fixture --out /tmp/faraday-v08-fixture
+          node bin/faraday.js lab run --seed 42 --out /tmp/faraday-v08-evals.json > /tmp/faraday-v08-summary.json
+          node -e "const r=require('/tmp/faraday-v08-evals.json');if(r.summary.total!==1000||r.summary.failed!==0||r.summary.gaps!==350)process.exit(1)"
+      - name: Upload synthetic evaluation evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: faraday-v08-node-${{ matrix.node-version }}
+          path: |
+            /tmp/faraday-v08-evals.json
+            /tmp/faraday-v08-compat.json
+          retention-days: 14
       - name: Validate CLI contracts snapshot and diff
         working-directory: agentic
         run: |
