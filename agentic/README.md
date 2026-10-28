@@ -1,120 +1,139 @@
-# FARADAY Graph — plug-in agentic topology
+# FARADAY Graph — plug & use for MCP systems
 
-**Iteration 1 — Discovery** and **Iteration 2 — Runtime Graph** are implemented in this folder.
+**Build 004: Iterations 1–4** — discovery, runtime observation, structural contracts, impact analysis, local packaging and reversible installation.
 
-> Discover what tools your agents can access, then observe which MCP tools they actually call. FARADAY does not change the agent's prompts, responses or tool execution policy.
+> See what your MCP agents depend on, observe what they invoke, detect breaking tool contract changes, and introduce FARADAY without changing your prompts or orchestration code.
 
-![Status](https://img.shields.io/badge/agentic-build%20002%20%7C%20discovery%20%2B%20observation-green)
+**Status:** local, offline-first development tool. **Not** a mandatory security gateway, code semantic indexer, real agent identity provider, or proof of zero-bypass execution. It is not yet published to npm. No claims of production certification or universal compatibility.
 
 ## Requirements
 
-- **Node.js 22.16+**, with built-in `node:sqlite`. Node 22 shows a benign experimental SQLite API warning. SQLite requires no native or third-party npm module.
-- Compatible **MCP stdio** servers for runtime observation. Config discovery also inventories HTTP MCP servers, but does **not** proxy them in Iteration 2.
-- Local machine permission to read a workspace's MCP configuration. Optional global discovery is **opt-in**.
+- Node.js >=22.16 with built-in `node:sqlite` (an experimental warning may appear under Node 22).
+- For observation: an MCP client using a **stdio** server. Remote HTTP MCP servers are inventoried but not proxied.
+- Permission to read and optionally modify the chosen MCP configuration file. Global scans require explicit `--include-global`.
 
-## Install locally (no npm package has been published)
+## Five-minute local installation
 
 ```bash
+# From the cloned repository:
 cd agentic
-npm link
-faraday demo  # generates a sample graph; executes no real tools
-faraday scan --root /path/to/project
-faraday graph --format mermaid
-faraday serve
+npm link                    # installs 'faraday' locally/globally using npm link
+faraday init --root /path/to/agent-project
+faraday doctor --root /path/to/agent-project
+faraday scan --root /path/to/agent-project
+faraday serve --db /path/to/agent-project/.faraday/graph.sqlite
 ```
 
-The `serve` command prints a one-time local URL. Open it in your browser. The graph includes client configurations, MCP servers, discovered tools and observed calls. The webpage is read-only and listens only on `127.0.0.1` with an ephemeral access cookie.
+The web UI prints a loopback URL with a one-time access token. Only metadata is stored locally. `init` creates `.faraday/graph.sqlite` and adds `.faraday/` to `.gitignore` when necessary. `init --dry-run` previews these changes; **no MCP servers are executed** during discovery or initialization.
 
-The `scan` command only reads *known* project files: `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `mcp.json`; add `--include-global` to examine supported home-based Claude Desktop, Cursor, Copilot CLI and Windsurf configurations. It never starts any server, contacts remote endpoints or reads the codebase. A `server` in the graph means **configured**, not confirmed reachable.
-
-## Enable passive runtime observation
-
-**Option A — automatic reversible patch** for a strict-JSON MCP config:
+### Observe real calls, reversibly
 
 ```bash
-faraday install --config /path/to/project/.mcp.json --server my-server
-# Restart the agent client and use the MCP tools normally.
-faraday serve
-# To restore the exact original server configuration:
-faraday uninstall --config /path/to/project/.mcp.json --server my-server
+faraday install --config /path/to/agent-project/.mcp.json --server my-server
+# Restart the MCP client and call existing tools.
+faraday serve --db /path/to/agent-project/.faraday/graph.sqlite
+
+# To restore the original server entry:
+faraday uninstall --config /path/to/agent-project/.mcp.json --server my-server
 ```
 
-`install` replaces only the chosen server entry with a proxy wrapper. It copies the original launch entry to a mode-0600 file within the configuration folder's `.faraday/targets/` directory so the proxy starts the original MCP server **without recursion**. The backup can contain secrets; do **not** commit or share `.faraday`. The same file is used for uninstall. The auto-installer preserves other JSON object entries but reformats JSON; use a VCS diff if its formatting matters. It deliberately refuses to rewrite commented JSONC.
-
-**Option B — no modification**:
+If not using the working directory as the graph location, pass the same explicit `--db` to `install`, `serve`, `scan` and `contracts snapshot`:
 
 ```bash
-faraday hook --config /path/to/project/.mcp.json --server my-server
+faraday install --config /path/to/agent-project/.mcp.json --server my-server \
+  --db /path/to/agent-project/.faraday/graph.sqlite
 ```
 
-This prints a proxy entry to install manually. Keep the original server configuration in a **separate** file path; do not point the wrapper to itself. The proxy may be used directly:
+The installer wraps one selected **strict-JSON stdio MCP server** and privately backs up the original launch entry in `.faraday/targets/`. Backups may contain credentials and must remain private. The proxy passes the MCP wire bytes unchanged; it does not enforce Gate policies. `uninstall` refuses to overwrite a wrapper modified externally.
+
+### Iteration 3 — Contracts and impact analysis
+
+After using a client that sends `tools/list` through the proxy, capture a baseline:
 
 ```bash
-faraday proxy --config /path/to/original.mcp.json --server my-server --db /path/to/project/.faraday/graph.sqlite
+faraday contracts snapshot --db .faraday/graph.sqlite --out .faraday/baseline.json
+# Update a server or MCP dependency, reconnect, and invoke tools/list again.
+faraday contracts snapshot --db .faraday/graph.sqlite --out .faraday/current.json
+faraday contracts compare --base .faraday/baseline.json --current .faraday/current.json
+faraday contracts compare --base .faraday/baseline.json --current .faraday/current.json --json
+faraday contracts compare --base .faraday/baseline.json --current .faraday/current.json --fail-on-breaking
+# Exit code 2 if a breaking structural change is detected.
 ```
 
-The runtime passively observes JSON-RPC messages, forwards *unchanged bytes*, records method, tool name, outcome and approximate latency; indexes tools from `tools/list`; and never stores prompts, full tool arguments, URLs, environment variable values or response bodies. Graph names use a strict allowlist and are hashed/redacted if suspicious.
+Changes are classified as **breaking**, **additive**, or **review**. Breaking examples: previously observed tool removed, input property removed, newly required property, narrowed accepted types, and `additionalProperties` newly forbidden. Output changes are conservatively marked for review. Possible affected clients are inferred from **configured topology**; FARADAY cannot certify they are live consumers.
 
-### Useful commands
+Generate a runnable offline regression test:
 
 ```bash
-faraday scan --root . --json
-faraday scan --root . --include-global
-faraday graph --format json
+faraday contracts generate \
+  --base .faraday/baseline.json \
+  --current .faraday/current.json \
+  --out .faraday/regression
+node --test .faraday/regression/contracts.regression.test.mjs
+```
+
+The test imports `@faraday/agentic/contracts`. The package must be installed or linked **in the agent workspace**, e.g. `npm install --save-dev /absolute/path/to/faraday/agentic` or `npm link @faraday/agentic`. The generated test loads both JSON snapshots at run time and checks for breaking changes **without calling any real tools**. To validate future changes, refresh `current.json` and rerun (generate again if using a separate output folder). Onboarding is easiest if generated tests live in the agent repository.
+
+**Coverage limit:** the tool schema is normalized and privacy-reduced. FARADAY ignores descriptions, defaults, enum literals, numeric bounds, patterns, examples and arbitrary extension constraints. A difference only in those fields is not detected; an unchanged result is **not proof of compatibility**. The graph does not know tools that were not returned by an observed `tools/list` response. When a **complete** observed `tools/list` finishes, its server contract set is replaced, so removed tools are detected. Partial or failed pages are not treated as complete. If a server never refreshes `tools/list`, previously observed contracts remain and coverage is stale.
+
+### Iteration 4 — Plug & Use / diagnostics
+
+```bash
+faraday init --root . --dry-run  # preview before writing
+faraday init --root .            # idempotent workspace bootstrap
+faraday doctor --root .          # local checks; no network
+faraday doctor --root . --json   # machine-readable report
 faraday graph --format mermaid > topology.mmd
-faraday serve --port 0
-npm test
+npm run test:all
+npm pack --dry-run               # check contents of a local distributable
 ```
 
-SQLite graph defaults to `.faraday/graph.sqlite`, located under the current working directory. Pass `--db /absolute/path/graph.sqlite` to point all commands at the same database if needed.
+**Supported formats:** `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `mcp.json`; `mcpServers` and VS Code `servers`. Global discovery is optional. HTTP MCP config inventory works, while HTTP proxy interception does not. JSONC with comments can be scanned only if valid strict JSON and is deliberately not rewritten.
 
-## What is actually supported
+**Safe rollback:** `uninstall` restores each instrumented server from a private backup; it does not delete collected events or database files. To remove local graph data, stop the viewer, inspect `.faraday/` and delete it manually. No automatic destructive cleanup is performed.
 
-| Capability | Status |
-| --- | --- |
-| Project MCP config discovery (`mcpServers`, VS Code `servers`) | ✅ |
-| Opt-in global discovery | ✅ |
-| HTTP server inventory without outbound requests | ✅ |
-| SQLite nodes, relationships, event history | ✅ |
-| Mermaid/JSON graph export | ✅ |
-| stdio MCP transparent proxy with bidirectional JSON-RPC | ✅ |
-| `initialize`, `tools/list`, `tools/call`, notifications, JSON-RPC batches | ✅ observed, bytes forwarded |
-| Auto-install and rollback selected strict-JSON server | ✅ |
-| Local interactive SVG graph + recent events | ✅ |
-| Automatic CodeGraph-like source-code and dependency indexing | ❌ not implemented |
-| Parse comments/trailing commas in JSONC configuration files | ❌ not implemented |
-| Streamable HTTP/SSE transparent proxy | ❌ future adapter |
-| Intercept tool calls outside the configured proxy | ❌ impossible without routing/enforcement changes |
-| Any MCP tool calls blocked or authorized by Gate | ❌ **observation only** |
+## Command reference
 
-## Privacy & security
-
-- The proxy **executes the command already configured in your MCP server**. Never install it on untrusted configs. `scan`, `graph`, `hook`, and `serve` do **not** run MCP tools.
-- Only local graph metadata is stored. Some tool/server names can still be sensitive, so treat `.faraday` as private. `.faraday/` must be in `.gitignore`.
-- The proxy is **not** a sandbox or mandatory zero-trust gateway. Agents can bypass it with direct network/API access, and the host can read the local data. No claim of no-bypass enforcement is made.
-- The CLI does not send telemetry, perform remote scans or contact cloud APIs. There is no production-grade audit receipt, workload attestation or key custody in Graph.
-- `serve` is local-only and requires a one-time token; close it when done. Don't share the temporary URL.
-- `--debug-stderr` deliberately forwards the MCP server's stderr; use only if you accept that server logs may expose secrets.
-- The initial snapshot is *structural*, not semantic: without runtime calls it cannot infer hidden tools, orchestration routes, implicit API usage, or other agents' code.
+```text
+faraday init [--root PATH] [--dry-run]
+faraday doctor [--root PATH] [--json]
+faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
+faraday install --config FILE --server NAME [--db PATH]
+faraday uninstall --config FILE --server NAME
+faraday hook --config FILE --server NAME [--db PATH]
+faraday proxy --config FILE --server NAME [--db PATH] [--debug-stderr]
+faraday graph [--db PATH] [--format json|mermaid]
+faraday contracts snapshot [--db PATH] --out FILE
+faraday contracts compare --base FILE --current FILE [--json] [--fail-on-breaking]
+faraday contracts generate --base FILE --current FILE --out DIR
+faraday serve [--db PATH] [--port N]
+faraday demo
+```
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  C[MCP Client] --> P[FARADAY stdio proxy]
-  P --> S[Existing MCP Server]
-  P -. metadata only .-> DB[(Local SQLite graph)]
-  DB --> V[Local browser UI]
-  DB --> EX[Mermaid / JSON export]
+  Client[MCP Client] --> Proxy[Transparent stdio Proxy]
+  Proxy --> Real[MCP Server]
+  Proxy -. Sanitized metadata .-> DB[(SQLite Graph + Contracts)]
+  DB --> UI[Local browser UI]
+  DB --> Snapshot[Contract snapshots]
+  Snapshot --> Diff[Breaking / Additive / Review]
+  Diff --> Tests[Offline regression tests]
 ```
 
-The entire proxy is Node standard library. For safety and portability it uses the MCP **stdio newline-framed JSON-RPC wire format** and does not terminate/reinterpret the JSON-RPC session.
+## Privacy and security
 
-## Test
+- No model prompts, full tool arguments, results, raw HTTP URLs, environment variable values or schema descriptions are recorded by Graph. Only conservative structural schemas and metadata are stored. Some tool/property names can still be revealing, so treat `.faraday` as private.
+- The proxy executes the previously configured command with its provided environment. **Do not** use untrusted MCP configurations. `init`, `doctor`, `scan`, `contracts` and `serve` do not execute tools.
+- A local HTTP viewer binds exclusively to `127.0.0.1`, uses an ephemeral session key and `no-store` responses. Do not share its URL.
+- Graph is an **observer**, not an enforcement/security boundary. Client workflows using direct API calls or another uninstrumented MCP path are invisible.
+- Runtime graph captures latest structural contract per `server/tool`, **not** a full immutable version history. Capture separate versioned snapshots before/after each change.
+- The generated regression suite is structural and cannot prove business-level behavior without domain-specific tests.
 
-`npm test` covers configuration formats, opt-in behavior, symlink escaping, malformed configs, secret redaction, persistence, reversible install/uninstall, end-to-end real subprocess MCP proxy including `initialize`/`tools/list`/`tools/call`, error responses, and local browser authentication. Tests use no real APIs or credentials.
+## Test & release readiness
 
-### Third-party references
+`npm test` runs offline unit and integration tests, including real child process MCP forwarding, SQLite persistence, safe contract scrubbing and comparisons, generated regression execution, safe setup and idempotence, viewer authentication and no-leak expectations. CI is designed for Node.js 22 and 24.
 
-- [MCP stdio transport](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2026-07-28/basic/transports/stdio.mdx)
-- [VS Code MCP configuration reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)
+The npm package is deliberately marked `private` until validated for public distribution. You can use `npm link` or local `npm install` without publishing it.

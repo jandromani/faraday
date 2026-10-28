@@ -7,10 +7,17 @@ const text=(node,value)=>{node.textContent=value;return node;};
 let lastGraph;
 async function update(){
   try{
-    const [g,e]=await Promise.all(['/api/graph','/api/events'].map(path=>fetch(path+'?key='+encodeURIComponent(key)).then(r=>{if(!r.ok)throw Error('API unavailable');return r.json();})));
+    const [g,e,contracts]=await Promise.all(['/api/graph','/api/events','/api/contracts'].map(path=>fetch(path).then(r=>{if(!r.ok)throw Error('API unavailable');return r.json();})));
     lastGraph=g;
     for(const type of ['client','server','tool']) $(type+'s').textContent=g.nodes.filter(n=>n.type===type).length;
     $('calls').textContent=g.stats.toolCalls;
+    $('contracts').textContent=contracts.tools.length;
+    const contractsList=$('contracts-list');contractsList.replaceChildren();
+    if(!contracts.tools.length){const p=document.createElement('p');p.className='event';p.textContent='No contracts observed yet. Route MCP tools/list through the FARADAY proxy.';contractsList.append(p);}
+    for(const c of contracts.tools.slice(0,100)){const entry=document.createElement('div');entry.className='event';
+      const left=document.createElement('div');left.textContent=c.server+' / '+c.tool;
+      const secondary=document.createElement('small');secondary.textContent='Input properties: '+Object.keys(c.inputSchema?.properties||{}).length+' · Potential clients: '+(c.potentialClients.join(', ')||'unknown');left.append(secondary);
+      const badge=document.createElement('span');badge.className='outcome';badge.textContent=c.fingerprint.slice(0,10);entry.append(left,badge);contractsList.append(entry);}
     $('status').textContent='● LOCAL • OBSERVING';
     graph(g);
     const list=$('event-list');list.replaceChildren();

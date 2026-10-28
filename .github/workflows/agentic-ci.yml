@@ -22,11 +22,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Execute discovery + proxy integration tests
+      - name: Run security, contracts, plug-and-use tests and package smoke
         working-directory: agentic
-        run: npm test
-      - name: Execute synthetic runtime demo
+        run: npm run test:all
+      - name: Validate CLI contracts snapshot and diff
         working-directory: agentic
         run: |
-          node bin/faraday.js demo --db /tmp/faraday-ci.sqlite
-          node bin/faraday.js graph --db /tmp/faraday-ci.sqlite --format mermaid | grep 'flowchart LR'
+          node bin/faraday.js contracts snapshot --db .faraday/graph.sqlite --out /tmp/faraday-current.json
+          node bin/faraday.js contracts compare --base /tmp/faraday-current.json --current /tmp/faraday-current.json --fail-on-breaking

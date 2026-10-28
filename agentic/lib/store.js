@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { safeLabel } from './discover.js';
+import { normalizeSchema, digest, canonical } from './contracts.js';
 
 const MAX_EVENTS = 4000;
 const at = () => new Date().toISOString();
@@ -25,7 +26,12 @@ export class GraphStore {
       CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT NOT NULL,
         server TEXT NOT NULL, direction TEXT NOT NULL, kind TEXT NOT NULL,
-        operation TEXT NOT NULL, tool TEXT, status TEXT, latency_ms INTEGER);`);
+        operation TEXT NOT NULL, tool TEXT, status TEXT, latency_ms INTEGER);
+      CREATE TABLE IF NOT EXISTS contracts (
+        server TEXT NOT NULL, tool TEXT NOT NULL,
+        input_schema TEXT NOT NULL, output_schema TEXT, fingerprint TEXT NOT NULL,
+        first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+        PRIMARY KEY(server,tool));`);
     if (existsSync(this.path)) chmodSync(this.path, 0o600);
     this.nodeStatement = this.db.prepare(`INSERT INTO nodes (id,type,label,first_seen,last_seen)
       VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_seen=excluded.last_seen`);
@@ -78,6 +84,32 @@ export class GraphStore {
     this.edge(owner, tool, relation);
     return name;
   }
+  contract(server, tool, inputSchema, outputSchema = null) {
+    const who=safeLabel(server),name=safeLabel(tool);
+    const input=normalizeSchema(inputSchema), output=outputSchema===null?null:normalizeSchema(outputSchema);
+    const fingerprint=digest({input,output}),timestamp=at();
+    this.tool(who,name);
+    this.db.prepare(`INSERT INTO contracts(server,tool,input_schema,output_schema,fingerprint,first_seen,last_seen)
+      VALUES(?,?,?,?,?,?,?) ON CONFLICT(server,tool) DO UPDATE SET
+      input_schema=excluded.input_schema,output_schema=excluded.output_schema,
+      fingerprint=excluded.fingerprint,last_seen=excluded.last_seen`).run(
+        who,name,canonical(input),output===null?null:canonical(output),fingerprint,timestamp,timestamp);
+    return fingerprint;
+  }
+  replaceContracts(server,tools) {
+    const who=safeLabel(server);
+    if (!Array.isArray(tools) || tools.length>2000) throw new Error('Invalid complete tools/list');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      // Only a complete tools/list replaces the current tool contract snapshot.
+      // History of nodes/edges/events remains independent from active contracts.
+      this.db.prepare('DELETE FROM contracts WHERE server=?').run(who);
+      for(const tool of tools) if(tool&&typeof tool.name==='string')
+        this.contract(who,tool.name,tool.inputSchema,tool.outputSchema??null);
+      this.db.exec('COMMIT');
+    } catch(error) {this.db.exec('ROLLBACK');throw error;}
+  }
+  contracts() {return this.db.prepare('SELECT * FROM contracts ORDER BY server,tool').all();}
   event({server, direction, kind, operation, tool = null, status = null, latencyMs = null}) {
     const normalized = {
       server: safeLabel(server), direction: safeLabel(direction),
@@ -100,6 +132,7 @@ export class GraphStore {
         edges: this.db.prepare('SELECT COUNT(*) AS n FROM edges').get().n,
         events: this.db.prepare('SELECT COUNT(*) AS n FROM events').get().n,
         toolCalls: this.db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind='tool_call' AND direction='response'").get().n,
+        contracts: this.db.prepare('SELECT COUNT(*) AS n FROM contracts').get().n,
       },
     };
   }

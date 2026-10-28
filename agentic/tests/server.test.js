@@ -19,8 +19,10 @@ test('viewer is localhost, token gated, and returns metadata-only graph',async t
  const page=await fetch(origin+'/',{headers:{cookie}});
  assert.equal(page.status,200);assert.match(await page.text(),/FARADAY/);
  assert.ok((await fetch(origin+'/app.js',{headers:{cookie}})).ok);
+ const contracts=await fetch(origin+'/api/contracts',{headers:{cookie}});
+ assert.equal(contracts.status,200);assert.deepEqual((await contracts.json()).tools,[]);
  const graph=await fetch(origin+'/api/graph',{headers:{cookie}});
- assert.deepEqual((await graph.json()).stats,{nodes:0,edges:0,events:0,toolCalls:0});
+ assert.deepEqual((await graph.json()).stats,{nodes:0,edges:0,events:0,toolCalls:0,contracts:0});
  const badHostStatus=await new Promise((resolve,reject)=>{
   const req=http.get({hostname:'127.0.0.1',port,path:'/api/graph',headers:{Cookie:cookie,Host:'attacker.example'}},r=>{r.resume();resolve(r.statusCode)});req.on('error',reject);
  });

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { GraphStore } from './store.js';
+import { snapshotFromStore } from './contracts.js';
 
 const STATIC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../web');
 const ASSETS = new Map([
@@ -44,9 +45,9 @@ export async function serveGraph({database, port = 0, onReady = () => {}}) {
     if (!validCookie) {
       res.writeHead(403, headers).end('Forbidden'); return;
     }
-    if (u.pathname === '/api/graph' || u.pathname === '/api/events') {
+    if (u.pathname === '/api/graph' || u.pathname === '/api/events' || u.pathname === '/api/contracts') {
       try {
-        const data = u.pathname === '/api/graph' ? store.snapshot() : store.events(200);
+        const data = u.pathname === '/api/graph' ? store.snapshot() : (u.pathname === '/api/events' ? store.events(200) : snapshotFromStore(store));
         res.writeHead(200, {...headers,'Content-Type':'application/json; charset=utf-8'})
           .end(JSON.stringify(data));
       } catch {

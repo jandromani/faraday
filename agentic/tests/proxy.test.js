@@ -43,6 +43,8 @@ test('transparent stdio bridge logs tool metadata and preserves all original MCP
  await new Promise((resolve)=>proc.once('close',resolve));
  const store=new GraphStore(db),graph=store.snapshot(),events=store.events(50);
  assert.ok(graph.nodes.some(n=>n.type==='tool'&&n.label==='echo'));
+ assert.equal(graph.stats.contracts,2);
+ assert.equal(store.contracts().find(c=>c.tool==='echo')?.server,'fixture');
  assert.equal(graph.stats.toolCalls,2);
  assert.ok(events.some(e=>e.status==='error'&&e.operation==='tools/call'));
  assert.ok(events.some(e=>e.operation==='notifications/initialized'));

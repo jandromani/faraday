@@ -7,9 +7,11 @@ import { proxyMcp } from '../lib/proxy.js';
 import { serveGraph } from '../lib/server.js';
 import { installProxy, uninstallProxy } from '../lib/install.js';
 import { runDemo } from '../lib/demo.js';
+import { doctor, initialize } from '../lib/setup.js';
+import { compareSnapshots, readSnapshot, snapshotFromStore, saveSnapshot, generateRegressionTests } from '../lib/contracts.js';
 
 const appPath = fileURLToPath(import.meta.url);
-const usage = `FARADAY Graph 0.2.0 — local MCP discovery + observation
+const usage = `FARADAY Graph 0.4.0 — local MCP discovery, observation, contracts and setup
 
 Usage:
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
@@ -19,6 +21,11 @@ Usage:
   faraday install --config FILE --server NAME [--db PATH]
   faraday uninstall --config FILE --server NAME
   faraday serve [--db PATH] [--port 0]
+  faraday doctor [--root PATH] [--json]
+  faraday init [--root PATH] [--dry-run]
+  faraday contracts snapshot [--db PATH] --out FILE
+  faraday contracts compare --base FILE --current FILE [--json] [--fail-on-breaking]
+  faraday contracts generate --base FILE --current FILE --out DIR
   faraday demo
 
 Only 'proxy' launches a configured MCP server. 'install' rewrites the selected
@@ -32,8 +39,8 @@ function argsOf(args) {
     const t=args[i];
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
-    if (['include-global','json','debug-stderr'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port'].includes(key)) throw new Error('Unknown option');
+    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking'].includes(key)) {out[key]=true;continue;}
+    if (!['root','db','format','config','server','port','out','base','current'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -44,7 +51,34 @@ async function main() {
   const [cmd,...argv]=process.argv.slice(2);
   const flags=argsOf(argv);
   if (!cmd || cmd === 'help' || cmd === '--help') {process.stdout.write(usage);return;}
-  if (cmd==='scan') {
+  if (cmd==='doctor') {
+    const result=doctor({root:flags.root,includeGlobal:!!flags['include-global']});
+    if(flags.json) process.stdout.write(JSON.stringify(result,null,2)+'\n');
+    else process.stdout.write('FARADAY DOCTOR\n'+result.checks.map(c=>`  ${c.ok?'OK':'WARN'}  ${c.name}: ${c.detail}\n`).join('')+
+      result.warnings.map(w=>'  warning: '+w+'\n').join('')+`  Ready for initial graph: ${result.ready}\n`);
+  } else if (cmd==='init') {
+    const result=initialize({root:flags.root,dryRun:!!flags['dry-run']});
+    process.stdout.write(JSON.stringify(result,null,2)+'\n');
+  } else if (cmd==='contracts') {
+    const action=flags._[0];
+    if(action==='snapshot') {
+      if(!flags.out) throw Error('snapshot needs --out');
+      const store=new GraphStore(fileDB(flags));
+      try {const data=snapshotFromStore(store);saveSnapshot(flags.out,data);
+        process.stdout.write(`Saved ${data.tools.length} observed tool contracts to ${resolve(flags.out)}\n`);
+      } finally{store.close();}
+    } else if (action==='compare') {
+      if(!flags.base||!flags.current)throw Error('compare needs --base and --current');
+      const report=compareSnapshots(readSnapshot(flags.base),readSnapshot(flags.current));
+      if(flags.json)process.stdout.write(JSON.stringify(report,null,2)+'\n');
+      else process.stdout.write(`FARADAY Contracts: ${report.summary.breaking} breaking, ${report.summary.review} review, ${report.summary.additive} additive\n`+
+        report.entries.flatMap(e=>e.changes.map(c=>`  ${c.severity.toUpperCase()} ${e.server}/${e.tool} ${c.path}: ${c.message}; potential clients: ${e.potentialClients.join(',')||'unknown'}\n`)).join(''));
+      if(flags['fail-on-breaking'] && report.summary.breaking)process.exitCode=2;
+    } else if(action==='generate') {
+      if(!flags.base||!flags.current||!flags.out)throw Error('generate needs --base --current --out');
+      process.stdout.write(JSON.stringify(generateRegressionTests({baseline:flags.base,current:flags.current,outDir:flags.out}),null,2)+'\n');
+    } else throw Error('Unknown contracts subcommand');
+  } else if (cmd==='scan') {
     const report=discover({root:flags.root,includeGlobal:!!flags['include-global']});
     const store=new GraphStore(fileDB(flags));
     try {store.inventory(report.servers);} finally {store.close();}

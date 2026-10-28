@@ -16,6 +16,7 @@ export class McpObserver {
     this.store = store;
     this.server = safeLabel(server);
     this.inflight = { client: new Map(), server: new Map() };
+    this.partialTools = null;
     this.store.observedServer(this.server);
   }
   consume(raw, direction) {
@@ -38,7 +39,8 @@ export class McpObserver {
       if (isRequest) {
         const pending = this.inflight[sender];
         if (pending.size >= 2048) pending.clear();
-        pending.set(keyFor(m.id), { method, name, started: performance.now() });
+        pending.set(keyFor(m.id), { method, name, started: performance.now(),
+          continuedList: m.method==='tools/list' && m.params?.cursor !== undefined });
         this.store.event({server:this.server,direction:'request',kind: name ? 'tool_call' : 'rpc', operation:method, tool:name});
         if (name) this.store.tool(this.server, name, 'called');
       } else {
@@ -56,9 +58,17 @@ export class McpObserver {
       operation:state.method,tool:state.name,status:outcome,
       latencyMs:Math.round(performance.now() - state.started)});
     if (state.method === 'tools/list' && Array.isArray(m.result?.tools)) {
-      for (const tool of m.result.tools.slice(0, 1000)) {
-        if (tool && typeof tool.name === 'string') this.store.tool(this.server, tool.name);
-      }
+      const page=m.result.tools.slice(0, 1000);
+      // Do not treat a partial, errored or truncated tools/list page as a full
+      // contract manifest; that could produce false reports of removed tools.
+      if (outcome!=='ok' || m.result.tools.length>1000) {this.partialTools=null;return;}
+      if(!state.continuedList) this.partialTools=[];
+      if(!this.partialTools) return;
+      this.partialTools.push(...page);
+      if(this.partialTools.length>2000){this.partialTools=null;return;}
+      if(typeof m.result.nextCursor==='string' && m.result.nextCursor.length>0) return;
+      const complete=this.partialTools;this.partialTools=null;
+      this.store.replaceContracts(this.server,complete);
     }
   }
 }
