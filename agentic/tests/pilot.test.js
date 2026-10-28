@@ -14,11 +14,11 @@ function setup(t){
   const root=mkdtempSync(join(tmpdir(),'faraday-095-'));
   t.after(()=>rmSync(root,{recursive:true,force:true}));
   const f=fixture(root);
-  const receiptKey=newIdentity();
+  const receiptKey=newIdentity(),backendKey=newIdentity();
   const journal=new ExecutionJournal(join(root,'journal.sqlite'));
   const store=new DurableSyntheticStore(join(root,'backend.sqlite'));
   t.after(()=>{f.close();journal.close();store.close();});
-  return {root,f,receiptKey,journal,store};
+  return {root,f,receiptKey,backendKey,journal,store};
 }
 const rpc=(method,params={},id=9)=>({jsonrpc:'2.0',id,method,params:{...params,_meta:{'io.modelcontextprotocol/protocolVersion':VERSION}}});
 async function listen(t,server){await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>server.close(resolve)));return `http://127.0.0.1:${server.address().port}`;}
@@ -29,9 +29,9 @@ async function post(url,body,{capability,proof,headers={}}={}){
 }
 async function system(t,options={}){
   const env=setup(t);
-  const backend=createDurableSyntheticBackend({secret:env.f.backendSecret,store:env.store});const backendUrl=await listen(t,backend);
+  const backend=createDurableSyntheticBackend({secret:env.f.backendSecret,store:env.store,attestationPrivatePem:env.backendKey.privatePem});const backendUrl=await listen(t,backend);
   const gateway=createSecurePilotGateway({gate:env.f.gate,backendUrl:backendUrl+'/internal/execute',backendSecret:env.f.backendSecret,
-    journal:env.journal,receiptPrivatePem:env.receiptKey.privatePem,...options});const url=await listen(t,gateway);
+    journal:env.journal,receiptPrivatePem:env.receiptKey.privatePem,backendPublicPem:env.backendKey.publicPem,...options});const url=await listen(t,gateway);
   return {...env,url,backendUrl};
 }
 const call=(args=ARGS)=>rpc('tools/call',{name:'pay_invoice',arguments:args});
@@ -40,7 +40,7 @@ test('signed MCP operation succeeds and receipt is independently verified',async
   const x=await system(t);const r=await post(x.url,call(),x.f);
   assert.equal(r.status,200);assert.equal(r.json.result.structuredContent.status,'simulated');
   const receipt=r.json.result.structuredContent.receipt;
-  assert.deepEqual(verifyReceipt({publicPem:x.receiptKey.publicPem,receipt}).verified,true);
+  assert.deepEqual(verifyReceipt({publicPem:x.receiptKey.publicPem,receipt,backendPublicPem:x.backendKey.publicPem}).backendVerified,true);
   assert.equal(x.store.count(),1);assert.equal(x.journal.get(receipt.claims.operationId).state,'simulated');
   assert.ok(!JSON.stringify(receipt).includes('supplier_demo'));
 });

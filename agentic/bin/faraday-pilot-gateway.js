@@ -12,7 +12,7 @@ const journal=new ExecutionJournal(cfg.journalDb);
 const gate=new AuthorityGate({issuerKeys:keys,registry,policy:JSON.parse(readFileSync(cfg.policy,'utf8')),ledger});
 const server=createSecurePilotGateway({gate,backendUrl:cfg.backendUrl,
   backendSecret:readFileSync(cfg.backendSecretFile,'utf8').trim(),journal,
-  receiptPrivatePem:readKeyFile(cfg.receiptPrivateFile,{privateKey:true})});
+  receiptPrivatePem:readKeyFile(cfg.receiptPrivateFile,{privateKey:true}),backendPublicPem:readKeyFile(cfg.backendPublicFile)});
 server.listen(Number(process.env.PORT||8098),'0.0.0.0',()=>console.log('FARADAY v0.95 pilot gateway'));
 const stop=()=>server.close(()=>{ledger.close();journal.close();process.exit(0);});
 process.on('SIGTERM',stop);process.on('SIGINT',stop);

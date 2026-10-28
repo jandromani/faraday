@@ -6,6 +6,7 @@ import {AGENT,TOOL,RESOURCE,ACTION,ARGS} from '../lib/authority-fixture.js';
 const capability=JSON.parse(readFileSync('/run/agent/capability.json','utf8')).capability;
 const privatePem=readFileSync('/run/agent/agent-private.pem','utf8');
 const publicPem=readFileSync('/run/agent/receipt.pub','utf8');
+const backendPublicPem=readFileSync('/run/agent/backend.pub','utf8');
 const BASE='http://gateway:8098';
 for(let i=0;i<40;i++){
   try{if((await fetch(BASE+'/healthz',{signal:AbortSignal.timeout(300)})).ok)break;}catch{}
@@ -24,7 +25,7 @@ async function invoke(withAuth){
 }
 const anonymous=await invoke(false);const allowed=await invoke(true);const replay=await invoke(true);
 const receipt=allowed.data.result?.structuredContent?.receipt;
-const verified=Boolean(receipt&&verifyReceipt({publicPem,receipt}).verified);
+const verified=Boolean(receipt&&verifyReceipt({publicPem,receipt,backendPublicPem}).backendVerified);
 const pass=bypassDenied&&anonymous.status===403&&allowed.status===200&&replay.status===403&&verified;
 console.log(JSON.stringify({kind:'faraday-secure-pilot-docker',pass,
   checks:{bypassDenied,anonymous:anonymous.status,allowed:allowed.status,replay:replay.status,verified},

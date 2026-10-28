@@ -7,6 +7,7 @@ import http from 'node:http';
 import {AuthorityError,canonical,digest} from './authority.js';
 import {readJson} from './authority-gateway.js';
 import {signReceipt} from './pilot-receipts.js';
+import {verifyBackendAttestation} from './backend-attestation.js';
 const VERSION='2026-07-28',PREVIOUS='2025-11-25';
 const PATH='/mcp';
 const json=(res,status,data)=>{const bytes=Buffer.from(JSON.stringify(data));res.writeHead(status,{'content-type':'application/json','content-length':bytes.length,'cache-control':'no-store','x-content-type-options':'nosniff'});res.end(bytes);};
@@ -30,11 +31,11 @@ async function bounded(response,maxBytes=8192){
   finally{reader.releaseLock();}
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
-export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,receiptPrivatePem,
+export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,receiptPrivatePem,backendPublicPem,
       fetchFn=fetch,onEvent=()=>{},now=()=>Math.floor(Date.now()/1000),allowedOrigins=[]}){
   const endpoint=new URL(backendUrl);
   if(!['http:','https:'].includes(endpoint.protocol)||endpoint.pathname!=='/internal/execute'||endpoint.search||endpoint.hash||endpoint.username||endpoint.password)throw Error('Fixed backend endpoint required');
-  if(typeof backendSecret!=='string'||backendSecret.length<32||!gate||!journal||typeof journal.reserve!=='function'||!receiptPrivatePem)throw Error('Secure Pilot requires gate, journal, receipt key and service credential');
+  if(typeof backendSecret!=='string'||backendSecret.length<32||!gate||!journal||typeof journal.reserve!=='function'||!receiptPrivatePem||!backendPublicPem)throw Error('Secure Pilot requires gate, journal, gateway/backend signing identities and service credential');
   return http.createServer(async(req,res)=>{
     if(req.url==='/healthz'&&req.method==='GET')return json(res,200,{service:'faraday-secure-pilot',status:'ok'});
     if(req.url!==PATH||req.method!=='POST')return json(res,404,{error:'not-found'});
@@ -70,7 +71,7 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,
       journal.reserve(auth.jti,digest({tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args}));
     }catch(e){try{onEvent({status:'denied',reason:e instanceof AuthorityError?e.code:'invalid-request'});}catch{}
       return json(res,403,rpcError(msg.id,-32003,'FARADAY authority denied'));}
-    let outcome='upstream-uncertain',responseHash=null;
+    let outcome='upstream-uncertain',responseHash=null,backendAttestation=null;
     try{
       const upstream=await fetchFn(endpoint,{method:'POST',redirect:'error',signal:AbortSignal.timeout(3000),headers:{
         'content-type':'application/json','authorization':`Bearer ${backendSecret}`},body:JSON.stringify({
@@ -78,14 +79,15 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,
       const result=await bounded(upstream);
       const expected=digest({tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args});
       if(upstream.status===200 && result.status==='simulated' && result.operationId===auth.jti && result.requestHash===expected){
-        outcome='simulated';responseHash=digest({status:result.status,operationId:result.operationId,requestHash:result.requestHash});
+        verifyBackendAttestation({publicPem:backendPublicPem,attestation:result.attestation,operationId:auth.jti,requestHash:expected});
+        outcome='simulated';backendAttestation=result.attestation;responseHash=digest(result.attestation);
       }else outcome='upstream-rejected';
     }catch{outcome='upstream-uncertain';}
     let receipt;
     try{
       receipt=signReceipt({privatePem:receiptPrivatePem,claims:{version:1,operationId:auth.jti,agent:auth.agent,
-        tool:auth.tool,resource:auth.resource,action:auth.action,argsHash:digest(auth.args),rule:auth.rule,
-        outcome,responseHash,observedAt:now()}});
+        tool:auth.tool,resource:auth.resource,action:auth.action,argsHash:digest(auth.args),requestHash:digest({tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args}),rule:auth.rule,
+        outcome,responseHash,backendAttestation,observedAt:now()}});
       journal.finish(auth.jti,outcome,receipt);
       onEvent({status:outcome,tool:auth.tool,agent:auth.agent,operationId:auth.jti});
     }catch{return json(res,503,rpcError(msg.id,-32004,'Execution journal unavailable'));}

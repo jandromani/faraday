@@ -6,23 +6,30 @@ import {DatabaseSync} from 'node:sqlite';
 import {mkdirSync,lstatSync,chmodSync} from 'node:fs';
 import {dirname,resolve} from 'node:path';
 import {canonical,AuthorityError,digest} from './authority.js';
+import {verifyBackendAttestation} from './backend-attestation.js';
 const PREFIX=Buffer.from('FARADAY-RECEIPT-V095\0');
 const b64=(b)=>Buffer.from(b).toString('base64url');
 const unsigned=(body)=>Buffer.concat([PREFIX,canonical(body)]);
 export function signReceipt({privatePem,claims}){
-  const fields=['version','operationId','agent','tool','resource','action','argsHash','rule','outcome','responseHash','observedAt'];
+  const fields=['version','operationId','agent','tool','resource','action','argsHash','requestHash','rule','outcome','responseHash','backendAttestation','observedAt'];
   if(!claims||Object.keys(claims).sort().join('|')!==fields.sort().join('|')||claims.version!==1||
      !['simulated','upstream-uncertain','upstream-rejected'].includes(claims.outcome))throw new AuthorityError('invalid-receipt');
   return {claims,signature:b64(sign(null,unsigned(claims),createPrivateKey(privatePem)))};
 }
-export function verifyReceipt({publicPem,receipt}){
+export function verifyReceipt({publicPem,receipt,backendPublicPem}){
   if(!receipt||typeof receipt!=='object'||Object.keys(receipt).sort().join('|')!=='claims|signature')throw new AuthorityError('invalid-receipt');
   const {claims,signature}=receipt;
   if(!claims||claims.version!==1||!['simulated','upstream-uncertain','upstream-rejected'].includes(claims.outcome))throw new AuthorityError('invalid-receipt');
   if(typeof signature!=='string'||!/^[A-Za-z0-9_-]+$/.test(signature)||signature.length>200)throw new AuthorityError('invalid-receipt');
   let ok=false;try{ok=verify(null,unsigned(claims),createPublicKey(publicPem),Buffer.from(signature,'base64url'));}catch{throw new AuthorityError('invalid-receipt-signature');}
   if(!ok)throw new AuthorityError('invalid-receipt-signature');
-  return {verified:true,outcome:claims.outcome,operationId:claims.operationId,
+  const backendVerified=Boolean(backendPublicPem && claims.backendAttestation &&
+    verifyBackendAttestation({publicPem:backendPublicPem,attestation:claims.backendAttestation,operationId:claims.operationId,
+      requestHash:claims.requestHash}).verified &&
+    digest(claims.backendAttestation)===claims.responseHash);
+  if(backendPublicPem&&claims.outcome==='simulated'&&!backendVerified)throw new AuthorityError('backend-proof-not-verified');
+  if(claims.outcome==='simulated'&&claims.backendAttestation&&!backendPublicPem)throw new AuthorityError('backend-key-required');
+  return {verified:true,backendVerified,outcome:claims.outcome,operationId:claims.operationId,
     scopeDigest:digest({tool:claims.tool,resource:claims.resource,action:claims.action,argsHash:claims.argsHash})};
 }
 /** The ledger is a local single-node crash journal, not a distributed transaction. */

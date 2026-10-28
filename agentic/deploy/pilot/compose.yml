@@ -8,6 +8,7 @@ services:
     environment:
       FARADAY_BACKEND_SECRET_FILE: /run/faraday/backend-secret
       FARADAY_BACKEND_DB: /run/backend-state/actions.sqlite
+      FARADAY_BACKEND_ATTESTATION_PRIVATE_FILE: /run/backend-state/backend-attestation-private.pem
     volumes:
       - ${FARADAY_APP_DIR:?}:/app:ro
       - ${FARADAY_LAB_DIR:?}/gateway/backend-secret:/run/faraday/backend-secret:ro
@@ -15,6 +16,12 @@ services:
     networks: [backend_private]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    read_only: true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
   gateway:
     image: node:22.16-alpine
     working_dir: /app

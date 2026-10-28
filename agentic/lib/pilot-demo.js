@@ -15,15 +15,15 @@ function makeCall(url,capability,proof,args=ARGS){
     'mcp-method':'tools/call','mcp-name':TOOL,...(capability?{'x-faraday-capability':capability,'x-faraday-proof':Buffer.from(JSON.stringify(proof)).toString('base64url')}:{})},body:JSON.stringify(msg)});
 }
 export async function runPilotDemo(){
-  const root=mkdtempSync(join(tmpdir(),'faraday-095-pilot-'));const f=fixture(root),receiptKey=newIdentity();
+  const root=mkdtempSync(join(tmpdir(),'faraday-095-pilot-'));const f=fixture(root),receiptKey=newIdentity(),backendKey=newIdentity();
   const journal=new ExecutionJournal(join(root,'pilot-journal.sqlite'));
   const durableStore=new DurableSyntheticStore(join(root,'backend.sqlite'));
-  const backend=createDurableSyntheticBackend({secret:f.backendSecret,store:durableStore});
+  const backend=createDurableSyntheticBackend({secret:f.backendSecret,store:durableStore,attestationPrivatePem:backendKey.privatePem});
   let gateway;
   try{
     const backendBase=await start(backend);
     gateway=createSecurePilotGateway({gate:f.gate,backendUrl:backendBase+'/internal/execute',backendSecret:f.backendSecret,
-      journal,receiptPrivatePem:receiptKey.privatePem});
+      journal,receiptPrivatePem:receiptKey.privatePem,backendPublicPem:backendKey.publicPem});
     const url=await start(gateway);
     const rogue=newIdentity();
     const forged=createExecution({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS,
@@ -32,7 +32,7 @@ export async function runPilotDemo(){
     const allowedResponse=await makeCall(url,f.capability,f.proof);const allowed=allowedResponse.status;
     const allowedJson=await allowedResponse.json();
     const receipt=allowedJson.result?.structuredContent?.receipt;
-    const verification=verifyReceipt({publicPem:receiptKey.publicPem,receipt});
+    const verification=verifyReceipt({publicPem:receiptKey.publicPem,receipt,backendPublicPem:backendKey.publicPem});
     const replay=(await makeCall(url,f.capability,f.proof)).status;
     const direct=(await fetch(backendBase+'/internal/execute',{method:'POST',headers:{'content-type':'application/json'},body:'{}'})).status;
     const out={version:'0.95.0',kind:'synthetic-local-secure-pilot',checks:{stolen,allowed,replay,direct,receiptVerified:verification.verified,
