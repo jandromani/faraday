@@ -2,6 +2,22 @@
 
 **Build 009:** opt-in cryptographic authorization for synthetic actions, backed by the existing v0.8 Graph, Contracts, Shield and offline Lab.
 
+## v0.96 — Signed Approvals, Sentinel and Adversarial Testing
+
+The synthetic Secure Pilot now optionally requires **two independent Ed25519 approvals** bound to the exact capability and arguments. A persistent **Sentinel** provides emergency stop, temporary quarantine and a local hash-linked (not tamper-proof) incident log; **Budget** enforces per-agent action limits in SQLite.
+
+```bash
+npm run test:all
+npm run security:fuzz
+npm run pilot:docker
+faraday sentinel status --db /absolute/path/to/pilot/gateway-state/sentinel.sqlite
+faraday sentinel stop --db /absolute/path/to/pilot/gateway-state/sentinel.sqlite
+faraday sentinel resume --db /absolute/path/to/pilot/gateway-state/sentinel.sqlite
+```
+
+These are **pilot-only security controls**; they do not close the enterprise E17/E18/E19/E26 epics. Approval identities are generated for synthetic operators, not verified corporate humans. See [Security Operations](docs/V096_SECURITY_OPERATIONS.md).
+
+
 ## Authority Preview quickstart
 
 ```bash

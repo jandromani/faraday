@@ -8,6 +8,7 @@ import {AuthorityError,canonical,digest} from './authority.js';
 import {readJson} from './authority-gateway.js';
 import {signReceipt} from './pilot-receipts.js';
 import {verifyBackendAttestation} from './backend-attestation.js';
+import {decodeApprovals,verifyApprovals} from './approvals.js';
 const VERSION='2026-07-28',PREVIOUS='2025-11-25';
 const PATH='/mcp';
 const json=(res,status,data)=>{const bytes=Buffer.from(JSON.stringify(data));res.writeHead(status,{'content-type':'application/json','content-length':bytes.length,'cache-control':'no-store','x-content-type-options':'nosniff'});res.end(bytes);};
@@ -32,10 +33,12 @@ async function bounded(response,maxBytes=8192){
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,receiptPrivatePem,backendPublicPem,
-      fetchFn=fetch,onEvent=()=>{},now=()=>Math.floor(Date.now()/1000),allowedOrigins=[]}){
+      fetchFn=fetch,onEvent=()=>{},now=()=>Math.floor(Date.now()/1000),allowedOrigins=[],
+      approvalConfig=null,sentinel=null,budget=null}){
   const endpoint=new URL(backendUrl);
   if(!['http:','https:'].includes(endpoint.protocol)||endpoint.pathname!=='/internal/execute'||endpoint.search||endpoint.hash||endpoint.username||endpoint.password)throw Error('Fixed backend endpoint required');
   if(typeof backendSecret!=='string'||backendSecret.length<32||!gate||!journal||typeof journal.reserve!=='function'||!receiptPrivatePem||!backendPublicPem)throw Error('Secure Pilot requires gate, journal, gateway/backend signing identities and service credential');
+  if(approvalConfig && (!approvalConfig.approverKeys||!Number.isSafeInteger(approvalConfig.quorum)||approvalConfig.quorum<1))throw Error('Invalid approval configuration');
   return http.createServer(async(req,res)=>{
     if(req.url==='/healthz'&&req.method==='GET')return json(res,200,{service:'faraday-secure-pilot',status:'ok'});
     if(req.url!==PATH||req.method!=='POST')return json(res,404,{error:'not-found'});
@@ -55,21 +58,33 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,
       }
     }catch{return json(res,400,rpcError(msg?.id??null,-32600,'Invalid MCP request'));}
     if(msg.method==='initialize')return json(res,200,rpcResult(msg.id,{protocolVersion:msg.params?.protocolVersion===PREVIOUS?PREVIOUS:VERSION,
-      capabilities:{tools:{}},serverInfo:{name:'faraday-secure-pilot',version:'0.95.0'}}));
+      capabilities:{tools:{}},serverInfo:{name:'faraday-secure-pilot',version:'0.96.0'}}));
     if(msg.method==='tools/list')return json(res,200,rpcResult(msg.id,{tools:TOOLS}));
     if(msg.method!=='tools/call')return json(res,404,rpcError(msg.id,-32601,'Method not found'));
+    const remote=req.socket.remoteAddress??'unknown';
+    try{if(sentinel?.isBlocked(remote))return json(res,403,rpcError(msg.id,-32003,'FARADAY execution suspended'));}
+    catch{return json(res,503,rpcError(msg.id,-32004,'FARADAY incident ledger unavailable'));}
     let auth;
     try{
       if(msg.params?.name!=='pay_invoice'||!msg.params.arguments||typeof msg.params.arguments!=='object'||Array.isArray(msg.params.arguments))throw new AuthorityError('unknown-tool');
       const capability=req.headers['x-faraday-capability'];
       const proof=decode(req.headers['x-faraday-proof']);
       if(typeof capability!=='string'||capability.length>16000)throw new AuthorityError('invalid-capability');
-      // Authorization covers exact typed arguments from the wire, not text suggested by model.
+      // Approval is evaluated BEFORE spending the capability, bound to the exact signed intent.
       if(digest(msg.params.arguments)!==digest(proof.payload?.args))throw new AuthorityError('argument-mismatch');
+      if(approvalConfig){
+        verifyApprovals({bundle:decodeApprovals(req.headers['x-faraday-approvals']),
+          approverKeys:approvalConfig.approverKeys,quorum:approvalConfig.quorum,requiredRoles:approvalConfig.requiredRoles??[],
+          capability,agent:proof.payload.agent,tool:proof.payload.tool,resource:proof.payload.resource,
+          action:proof.payload.action,args:msg.params.arguments,now:now()});
+      }
       auth=gate.authorize({capability,proof});
       if(auth.tool!=='pay_invoice'||auth.resource!=='invoice:demo'||auth.action!=='pay')throw new AuthorityError('invalid-scope');
+      budget?.consume(auth.agent);
       journal.reserve(auth.jti,digest({tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args}));
-    }catch(e){try{onEvent({status:'denied',reason:e instanceof AuthorityError?e.code:'invalid-request'});}catch{}
+    }catch(e){const reason=e instanceof AuthorityError?e.code:'invalid-request';
+      try{onEvent({status:'denied',reason});}catch{}
+      try{sentinel?.record('deny',remote,reason);}catch{return json(res,503,rpcError(msg.id,-32004,'FARADAY incident ledger unavailable'));}
       return json(res,403,rpcError(msg.id,-32003,'FARADAY authority denied'));}
     let outcome='upstream-uncertain',responseHash=null,backendAttestation=null;
     try{
@@ -89,6 +104,7 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,
         tool:auth.tool,resource:auth.resource,action:auth.action,argsHash:digest(auth.args),requestHash:digest({tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args}),rule:auth.rule,
         outcome,responseHash,backendAttestation,observedAt:now()}});
       journal.finish(auth.jti,outcome,receipt);
+      sentinel?.record('allow',remote,outcome);
       onEvent({status:outcome,tool:auth.tool,agent:auth.agent,operationId:auth.jti});
     }catch{return json(res,503,rpcError(msg.id,-32004,'Execution journal unavailable'));}
     if(outcome!=='simulated')return json(res,503,rpcError(msg.id,-32005,`Backend outcome: ${outcome}; manual reconciliation required`));
