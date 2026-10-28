@@ -13,6 +13,8 @@ from pathlib import Path
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from faraday import Denied, SQLiteReplayStore
 from faraday_v2 import (GateV2, TrustRegistry, b64, capability_hash,
                         make_proof, public_raw)
