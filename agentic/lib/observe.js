@@ -1,4 +1,5 @@
 import { safeLabel } from './discover.js';
+import { denialReply } from './security-policy.js';
 
 const MAX_OBSERVED_LINE = 1024 * 1024;
 const tracked = new Set([
@@ -99,4 +100,39 @@ export function tapJsonLines(source, destination, observer, direction) {
   });
   destination.on('drain', () => source.resume());
   source.on('end', () => destination.end());
+}
+
+
+/** Explicit local policy in stdio transport: block unapproved tool calls. */
+export function tapGuardedJsonLines(source,destination,observer,policy,replySink){
+  const MAX=2*1024*1024;
+  let carry=Buffer.alloc(0),broken=false;
+  source.on('data',chunk=>{
+    if(broken)return;
+    carry=Buffer.concat([carry,chunk]);
+    if(carry.length>MAX){
+      broken=true;source.pause();destination.end();
+      process.stderr.write('[FARADAY] Oversized MCP frame blocked\n');return;
+    }
+    let idx;
+    while((idx=carry.indexOf(10))>=0){
+      const line=carry.subarray(0,idx).toString('utf8').replace(/\r$/,'');
+      const frame=carry.subarray(0,idx+1);
+      carry=carry.subarray(idx+1);
+      if(!line.trim())continue;
+      let obj;
+      try{obj=JSON.parse(line);}catch{
+        broken=true;source.pause();destination.end();
+        process.stderr.write('[FARADAY] Invalid JSON-RPC frame blocked\n');break;
+      }
+      const decision=policy.decision(obj);
+      observer.consume(line,'client_to_server');
+      if(!decision.allowed){
+        const msg=denialReply(obj);
+        if(msg){observer.consume(msg.trim(),'server_to_client');replySink.write(msg);}
+      } else if(!destination.write(frame))source.pause();
+    }
+  });
+  destination.on('drain',()=>source.resume());
+  source.on('end',()=>{if(carry.length)process.stderr.write('[FARADAY] Partial MCP frame discarded\n');destination.end();});
 }
