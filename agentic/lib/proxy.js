@@ -2,13 +2,15 @@ import { spawn } from 'node:child_process';
 import { resolve, dirname } from 'node:path';
 import { getExecutableServer } from './discover.js';
 import { GraphStore } from './store.js';
-import { McpObserver, tapJsonLines } from './observe.js';
+import { McpObserver, tapJsonLines, tapGuardedJsonLines } from './observe.js';
+import {loadToolPolicy} from './security-policy.js';
 
 /** A transparent stdio MCP subprocess proxy. Not an enforcement boundary. */
-export function proxyMcp({ configFile, server, database, debugStderr = false, cwd }) {
+export function proxyMcp({ configFile, server, database, debugStderr = false, cwd, policyFile }) {
   if (!configFile || !server) throw new Error('Proxy needs --config and --server');
   const configPath = resolve(configFile);
   const childConfig = getExecutableServer(configPath, server);
+  const policy=loadToolPolicy(policyFile,server);
   const store = new GraphStore(database);
   const observer = new McpObserver(store, childConfig.name);
   let child;
@@ -24,7 +26,8 @@ export function proxyMcp({ configFile, server, database, debugStderr = false, cw
   } catch (e) { store.close(); throw e; }
   // Nothing except the upstream MCP server is ever written to proxy stdout.
   child.stdin.on('error', () => { /* Downstream closed; exit is handled below. */ });
-  tapJsonLines(process.stdin, child.stdin, observer, 'client_to_server');
+  if(policy)tapGuardedJsonLines(process.stdin,child.stdin,observer,policy,process.stdout);
+  else tapJsonLines(process.stdin, child.stdin, observer, 'client_to_server');
   tapJsonLines(child.stdout, process.stdout, observer, 'server_to_client');
   child.on('error', () => {
     process.stderr.write('[FARADAY] MCP server could not be started\n');
