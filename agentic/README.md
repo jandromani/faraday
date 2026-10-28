@@ -1,10 +1,25 @@
 # FARADAY Graph — plug & use for MCP systems
 
-**Build 006: Free-first AI Advisory (Iterations 1–4 + HTTP bridge + optional free-model analysis)** — discovery, runtime observation, structural contracts, impact analysis, local packaging and reversible installation.
+**Build 008: Developer Preview (Graph, Contracts, adapter, TrustDiff and synthetic Lab)** — discovery, runtime observation, structural contracts, impact analysis, local packaging and reversible installation.
 
 > See what your MCP agents depend on, observe what they invoke, detect breaking tool contract changes, and introduce FARADAY without changing your prompts or orchestration code.
 
 **Status:** local, offline-first development tool. **Not** a mandatory security gateway, code semantic indexer, real agent identity provider, or proof of zero-bypass execution. It is not yet published to npm. No claims of production certification or universal compatibility.
+
+## Build 008 — Developer Preview (v0.8.0)
+
+v0.8 introduces **TrustDiff** (compare tool allowlists), a static **compatibility inventory**, a real synthetic **stdio MCP fixture with 12 dummy tools**, and a **1,000-scenario deterministic offline evaluation corpus**. No production system is contacted by the lab. See [v0.8 scope](docs/V08_SCOPE.md) and [compatibility matrix](docs/COMPATIBILITY.md).
+
+```bash
+faraday lab agents
+faraday lab fixture --out ./lab-fixture
+faraday lab run --seed 42 --out ./v08-report.json
+faraday lab run --fail-on-gap
+faraday compat --root .
+faraday trust diff --base before-policy.json --current after-policy.json --fail-on-expansion
+```
+
+**Expected lab result (seed 42):** 650 deterministic rule assertions pass, 0 fail, 350 explicitly unsupported checks for prompt injection, authenticated agent identity and chaos recovery. These 1,000 cases are NOT independent penetration tests or security certification. `--fail-on-gap` intentionally returns exit code 2. Compatibility with third-party client versions still needs live testing.
 
 ## FARADAY Shield 0.7 — Opt-in enforcement and security hardening
 
