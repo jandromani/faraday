@@ -41,11 +41,14 @@ export class ExecutionJournal {
     this.db.exec(`PRAGMA busy_timeout=5000; CREATE TABLE IF NOT EXISTS executions (
       operation_id TEXT PRIMARY KEY, args_hash TEXT NOT NULL,
       state TEXT NOT NULL CHECK(state IN ('reserved','simulated','upstream-uncertain','upstream-rejected')),
-      receipt_json TEXT, created_at INTEGER NOT NULL);`);
+      receipt_json TEXT, created_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS reconciliation_history (operation_id TEXT PRIMARY KEY, previous_receipt_json TEXT NOT NULL, confirmed_receipt_json TEXT NOT NULL, reconciled_at INTEGER NOT NULL);`);
     if(process.platform!=='win32')chmodSync(path,0o600);
     this.insert=this.db.prepare('INSERT INTO executions (operation_id,args_hash,state,created_at) VALUES (?,?,?,?)');
     this.update=this.db.prepare('UPDATE executions SET state=?,receipt_json=? WHERE operation_id=? AND state=\'reserved\'');
     this.getStatement=this.db.prepare('SELECT operation_id,args_hash,state,receipt_json FROM executions WHERE operation_id=?');
+    this.reconciled=this.db.prepare("UPDATE executions SET state='simulated',receipt_json=? WHERE operation_id=? AND state='upstream-uncertain'");
+    this.track=this.db.prepare('INSERT INTO reconciliation_history (operation_id,previous_receipt_json,confirmed_receipt_json,reconciled_at) VALUES (?,?,?,?)');
   }
   reserve(id,argsHash){
     if(typeof id!=='string'||id.length>128||typeof argsHash!=='string'||argsHash.length>100)throw new AuthorityError('invalid-operation');
@@ -56,6 +59,17 @@ export class ExecutionJournal {
     if(!['simulated','upstream-uncertain','upstream-rejected'].includes(state))throw new AuthorityError('invalid-state');
     try{if(this.update.run(state,JSON.stringify(receipt),id).changes!==1)throw new Error('not-reserved');}
     catch{throw new AuthorityError('journal-finalize-failed');}
+  }
+  reconcile(id,receipt){
+    const existing=this.get(id);
+    if(!existing||existing.state!=='upstream-uncertain'||!existing.receipt)throw new AuthorityError('not-reconcilable');
+    try{
+      this.db.exec('BEGIN IMMEDIATE');
+      const previous=JSON.stringify(existing.receipt),confirmed=JSON.stringify(receipt);
+      if(this.reconciled.run(confirmed,id).changes!==1)throw Error('state-changed');
+      this.track.run(id,previous,confirmed,Date.now());
+      this.db.exec('COMMIT');
+    }catch{try{this.db.exec('ROLLBACK');}catch{}throw new AuthorityError('reconciliation-failed');}
   }
   get(id){const r=this.getStatement.get(id);return r?{operationId:r.operation_id,argsHash:r.args_hash,state:r.state,receipt:r.receipt_json?JSON.parse(r.receipt_json):null}:null;}
   close(){this.db.close();}

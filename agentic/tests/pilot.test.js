@@ -112,3 +112,16 @@ test('backend refuses conflicting idempotency keys',t=>{
   assert.equal(x.store.apply({operationId:id,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS}).http,200);
   assert.equal(x.store.apply({operationId:id,tool:TOOL,resource:RESOURCE,action:ACTION,args:{...ARGS,amount_cents:9501}}).http,409);
 });
+
+test('backend cannot forge success without its own signing key',async t=>{
+  const x=await system(t,{fetchFn:async()=>new Response(JSON.stringify({status:'simulated',operationId:'anything',requestHash:'anything'}),{status:200,headers:{'content-type':'application/json'}})});
+  const r=await post(x.url,call(),x.f);assert.equal(r.status,503);assert.equal(x.store.count(),0);
+});
+test('backend success response missing attestation is not accepted',async t=>{
+  const x=await system(t,{fetchFn:async(_url,opts)=>{
+    const upstream=await fetch(x.backendUrl+'/internal/execute',opts);
+    const result=await upstream.json();delete result.attestation;
+    return new Response(JSON.stringify(result),{status:200,headers:{'content-type':'application/json'}});
+  }});
+  const r=await post(x.url,call(),x.f);assert.equal(r.status,503);assert.equal(x.store.count(),1);
+});
