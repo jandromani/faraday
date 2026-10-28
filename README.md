@@ -12,7 +12,7 @@ python -m unittest discover -s tests -v
 python scripts/demo_v2.py
 ```
 
-Read the [Build 002 security model and limitations](docs/BUILD002.md). **This does not yet prevent bypasses via direct API calls, provide independent SPIFFE identity attestation, or execute real tools.** The next milestone is Build 003: mandatory MCP enforcement with network-isolated backends and verified execution receipts.
+Read the [Build 002 security model and limitations](docs/BUILD002.md). See the [competitive analysis and go/no-go criteria](docs/COMPETITIVE_ANALYSIS.md) — **this is not a novel category**. **This does not yet prevent bypasses via direct API calls, provide independent SPIFFE identity attestation, or execute real tools.** The next milestone is Build 003: mandatory MCP enforcement with network-isolated backends and verified execution receipts.
 
 ---
 
