@@ -1,11 +1,12 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
-  "description": "FARADAY: plug-and-use local MCP graph, stdio/HTTP observation, privacy-first contracts and reversible installation",
+  "description": "FARADAY Graph Developer Preview: MCP discovery, structural contracts, TrustDiff, deterministic offline lab and reversible install",
   "type": "module",
   "bin": {
-    "faraday": "./bin/faraday.js"
+    "faraday": "./bin/faraday.js",
+    "faraday-lab-server": "./bin/faraday-lab-server.js"
   },
   "engines": {
     "node": ">=22.16.0"
@@ -13,7 +14,10 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "smoke": "node bin/faraday.js demo",
-    "test:all": "npm test && npm run smoke && npm pack --dry-run"
+    "test:all": "npm test && npm run smoke && npm run lab && npm pack --dry-run",
+    "lab": "node bin/faraday.js lab run",
+    "lab:gate": "node bin/faraday.js lab run --fail-on-gap",
+    "compat": "node bin/faraday.js compat --root ."
   },
   "license": "Apache-2.0",
   "exports": {
@@ -21,13 +25,17 @@
     "./ai-free": "./lib/ai-free.js",
     "./http-bridge": "./lib/http-bridge.js",
     "./shield": "./lib/security-policy.js",
-    "./egress": "./lib/egress-guard.js"
+    "./egress": "./lib/egress-guard.js",
+    "./lab": "./lib/lab.js",
+    "./trust-diff": "./lib/trust-diff.js",
+    "./compatibility": "./lib/compatibility.js"
   },
   "files": [
     "bin",
     "lib",
     "web",
     "README.md",
-    "SECURITY.md"
+    "SECURITY.md",
+    "docs"
   ]
 }
