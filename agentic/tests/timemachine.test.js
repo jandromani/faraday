@@ -54,3 +54,9 @@ test('E21 actual replay never invokes network or filesystem effectors',()=>{
   globalThis.fetch=()=>{throw Error('network access must not occur');};
   try{const r=replaySynthetic(captureSynthetic());assert.equal(r.summary.divergences,0);}finally{globalThis.fetch=original;}
 });
+
+test('E21 metadata hash detects policy expansion and edited limitations',()=>{
+  const x=captureSynthetic();x.policy.allow.push({agent:'adversary',tool:'pay_invoice',resource:'invoice:demo',op:'write'});
+  assert.throws(()=>verifyTrace(x),/metadata corruption/);
+  const y=captureSynthetic();y.limitations.push('incorrect assurance');assert.throws(()=>verifyTrace(y),/metadata corruption/);
+});
