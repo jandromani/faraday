@@ -1,8 +1,8 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.95.1",
+  "version": "0.96.0",
   "private": true,
-  "description": "FARADAY Secure Pilot: protected MCP tool path, durable synthetic idempotency, signed gateway receipts, network-isolation fixtures",
+  "description": "FARADAY Secure Pilot: signed multi-party approvals, incident response, quotas and adversarial mutation tests",
   "type": "module",
   "bin": {
     "faraday": "./bin/faraday.js",
@@ -23,7 +23,8 @@
     "authority:eval": "node bin/faraday.js authority eval --limit 100",
     "pilot": "node bin/faraday.js pilot demo",
     "pilot:docker": "sh scripts/docker-pilot-smoke.sh",
-    "pilot:eval": "node bin/faraday.js pilot eval --limit 100"
+    "pilot:eval": "node bin/faraday.js pilot eval --limit 100",
+    "security:fuzz": "node --test tests/fuzz.test.js"
   },
   "license": "Apache-2.0",
   "exports": {
@@ -42,7 +43,10 @@
     "./pilot-receipts": "./lib/pilot-receipts.js",
     "./pilot-backend-attestation": "./lib/backend-attestation.js",
     "./pilot-reconcile": "./lib/pilot-reconcile.js",
-    "./pilot-backend": "./lib/pilot-backend.js"
+    "./pilot-backend": "./lib/pilot-backend.js",
+    "./approvals": "./lib/approvals.js",
+    "./sentinel": "./lib/sentinel.js",
+    "./budget": "./lib/budget.js"
   },
   "files": [
     "bin",

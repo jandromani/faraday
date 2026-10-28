@@ -3,14 +3,19 @@ import {mkdirSync,writeFileSync,existsSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {randomBytes} from 'node:crypto';
 import {newIdentity,createIntent,AuthorityIssuer,NonceLedger} from '../lib/authority.js';
+import {signApproval,encodeApprovals} from '../lib/approvals.js';
 import {AGENT,TOOL,RESOURCE,ACTION,ARGS,POLICY} from '../lib/authority-fixture.js';
 const root=resolve(process.argv[2]||'.faraday/pilot-lab');
 if(existsSync(root))throw Error('Refusing to overwrite lab data');
 const gw=join(root,'gateway'),agentDir=join(root,'agent'),issuerDir=join(root,'issuer'),backendDir=join(root,'backend'),state=join(root,'gateway-state');
 for(const p of [root,gw,agentDir,issuerDir,backendDir,state])mkdirSync(p,{recursive:true,mode:0o700});
 const privateWrite=(path,value)=>writeFileSync(path,value,{flag:'wx',mode:0o600});
-const issuer=newIdentity(),agent=newIdentity(),receipt=newIdentity(),backendKey=newIdentity(),serviceSecret=randomBytes(40).toString('base64url');
+const issuer=newIdentity(),agent=newIdentity(),receipt=newIdentity(),backendKey=newIdentity(),approverFinance=newIdentity(),approverSecurity=newIdentity(),serviceSecret=randomBytes(40).toString('base64url');
 privateWrite(join(issuerDir,'issuer-private.pem'),issuer.privatePem);
+privateWrite(join(issuerDir,'finance-private.pem'),approverFinance.privatePem);
+privateWrite(join(issuerDir,'security-private.pem'),approverSecurity.privatePem);
+privateWrite(join(gw,'finance.pub'),approverFinance.publicPem);
+privateWrite(join(gw,'security.pub'),approverSecurity.publicPem);
 privateWrite(join(agentDir,'agent-private.pem'),agent.privatePem);
 privateWrite(join(agentDir,'receipt.pub'),receipt.publicPem);
 privateWrite(join(agentDir,'backend.pub'),backendKey.publicPem);
@@ -27,10 +32,17 @@ try{
   const intent=createIntent({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS,agentPrivatePem:agent.privatePem});
   const capability=authority.issue(intent,{ttl:300});
   privateWrite(join(agentDir,'capability.json'),JSON.stringify({capability}));
+  // Synthetic offline approvers; private keys never mounted into gateway/agent.
+  const scope={capability,agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS,ttl:300};
+  privateWrite(join(agentDir,'approvals.txt'),encodeApprovals([
+    signApproval({...scope,approver:'finance',privatePem:approverFinance.privatePem}),
+    signApproval({...scope,approver:'security',privatePem:approverSecurity.privatePem})]));
 }finally{issuerLedger.close();}
 privateWrite(join(gw,'pilot.json'),JSON.stringify({issuerKeys:{'pilot-issuer':'/run/faraday/issuer.pub'},
   agents:{[AGENT]:'/run/faraday/agent.pub'},policy:'/run/faraday/policy.json',
   backendSecretFile:'/run/faraday/backend-secret',receiptPrivateFile:'/run/faraday/receipt-private.pem',backendPublicFile:'/run/faraday/backend.pub',
-  nonceDb:'/run/state/nonce.sqlite',journalDb:'/run/state/journal.sqlite',backendUrl:'http://backend:8099/internal/execute'}));
+  nonceDb:'/run/state/nonce.sqlite',journalDb:'/run/state/journal.sqlite',sentinelDb:'/run/state/sentinel.sqlite',budgetDb:'/run/state/budget.sqlite',budgets:{[AGENT]:{maxCalls:10,windowMs:60000}},
+  approverKeys:{finance:{publicKeyFile:'/run/faraday/finance.pub',role:'finance'},security:{publicKeyFile:'/run/faraday/security.pub',role:'security'}},
+  approvalQuorum:2,requiredApprovalRoles:['finance','security'],backendUrl:'http://backend:8099/internal/execute'}));
 console.log(JSON.stringify({kind:'disposable-v095',root,issuerPrivateKeyMountedToGateway:false,
   agentBackendCredentialMounted:false,realSideEffects:false}));
