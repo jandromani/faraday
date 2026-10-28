@@ -1,13 +1,13 @@
 # FARADAY — Estado verificado del roadmap (32 épicas)
 
-**Corte:** 2026-10-28 · **Fuente canónica publicada:** `master` en `dc31333dadff4a5e938024a10c2744fe0724cf8a` (v0.9 Authority Preview) · **Candidato local:** v0.95 Secure Pilot.
+**Corte:** 2026-10-28 · **Fuente canónica publicada:** `master` en `79e29f2119e3720a2c0126ded6f48a8b976af4e3` (v0.95.1 Secure Pilot hardening).
 
-> Este documento es una auditoría de estado, **no** una certificación de seguridad, una afirmación de producción ni un porcentaje de preparación para empresas. Distingue código publicado (G), artefacto local no publicado (L) y pendientes. «Parcial» significa que hay código o evidencia que cubren solo una parte de la épica original; **no significa épica cerrada**.
+> Este documento es una auditoría de estado, **no** una certificación de seguridad, una afirmación de producción ni un porcentaje de preparación para empresas. Distingue código publicado (G), pruebas locales (L) y pendientes. «Parcial» significa que hay código o evidencia que cubren solo una parte de la épica original; **no significa épica cerrada**.
 
 ## Evidencias verificadas
 
-- **G:** GitHub master `dc31333d`, v0.9. Última CI Graph aprobada: https://github.com/jandromani/faraday/actions/runs/40781540267 ; tres jobs exitosos: Node 22, Node 24 y prueba Docker `network-isolation`. El test Docker es válido **solo para la topología sintética de referencia**.
-- **L:** v0.95 en artefactos locales de esta conversación, no fusionada en GitHub. `npm test` reejecutado el 28-10-2026 sobre el árbol local: **112/112 PASS**. Informe de evaluaciones: **100/100** casos sintéticos, **40** operaciones del backend de prueba. Prueba Docker v0.95 **no ejecutada** en ese entorno; topología inspeccionada estáticamente. Código local `agentic/docs/V095_SECURE_PILOT.md`.
+- **G:** GitHub master `79e29f21`, v0.95.1; CI de la rama y del PR #2 aprobadas, incluidos Node 22, Node 24 y `network-isolation` con Docker: https://github.com/jandromani/faraday/actions/runs/40785194214 . El aislamiento **solo** se demuestra para la topología Docker sintética.
+- **G:** v0.95 fue fusionada por PR #1; v0.95.1 por PR #2. **116/116** tests Node locales + **100/100** evaluaciones MCP sintéticas; **40** operaciones de backend en dicho corpus. El backend ahora firma evidencias independientes del recibo del gateway y existe conciliación mediante consulta de estado, sin volver a ejecutar la operación. Documentación: `agentic/docs/V0951_EVIDENCE_RECOVERY.md`. No hay herramienta de cliente ni efectos productivos atestados.
 - **G:** v0.8 lab: **1000 escenarios** deterministas, **650 checks PASS, 0 FAIL, 350 GAP**. Los GAP no son aprobados. No constituyen 1000 ataques independientes contra una infraestructura real.
 - **G:** el paquete `agentic/package.json` mantiene `private: true`. No hay publicación npm pública verificada.
 - **Ninguna de las 32 épicas originales está completamente cerrada** con todos los criterios empresariales contemplados. **24** tienen una implementación parcial/prototipo; **8** carecen de su capacidad central. Estas cifras son una clasificación de backlog, no una métrica de seguridad.
@@ -18,8 +18,8 @@
 | --- | --- | ---: | ---: | --- | --- |
 | F0 Foundations | E01–E04 | 4 | 0 | Docs y tests de seguridad | Especificación integral de interfaces, riesgos y privacidad |
 | F1 Universal Plug & Use | E05–E08 | 3 | 1 | CLI, MCP stdio/HTTP bridge, SQLite Graph, Contracts | Adapters framework reales y conformidad externa |
-| F2 Trust Boundary | E09–E14 | 6 | 0 | PoP Ed25519, policy, Docker v0.9; receipts locales v0.95 | Identidad atestada, ejecución general y evidencias independientes |
-| F3 Reliable Runtime | E15–E19 | 2 | 3 | Idempotencia/journal local v0.95, free-model guard | HA, human approval, Sentinel |
+| F2 Trust Boundary | E09–E14 | 6 | 0 | PoP Ed25519, policy, Docker, doble firma v0.95.1 | SPIFFE/OIDC, claves KMS y herramientas reales |
+| F3 Reliable Runtime | E15–E19 | 2 | 3 | Idempotencia/reconciliación sintética v0.95.1, free-model guard | HA, human approval, Sentinel |
 | F4 Agent Intelligence | E20–E22 | 2 | 1 | TrustDiff, structural impact, asesor opcional free | TimeMachine, evaluación causal y MemoryGuard |
 | F5 FARADAY Lab | E23–E27 | 4 | 1 | 12 actores sintéticos, 1000 escenarios, 100 evals de piloto | Fuzzing, chaos sistemático, benchmarks externos |
 | F6 Product Engineering | E28–E30 | 3 | 0 | GitHub CI, visor local, npm pack privado | Supply-chain verificable, consola enterprise, distribución |
@@ -43,8 +43,8 @@
 | E11 | Mandatory gateway / no bypass | Parcial | G: prueba Docker de separación de redes v0.9; L: MCP protegido | Asegurar rutas directas en despliegues reales, OAuth y red/credenciales generales |
 | E12 | Secrets broker | Parcial | G: credencial sintética backend solo en gateway, emisor separado | Vault/KMS, emisión efímera, rotación, revocación, broker en producción |
 | E13 | FARADAY Enclave | Parcial | G: aislamiento de red Docker en un fixture; L: compose de piloto | Sandbox endurecido, límites de recursos, filesystem, tenancy, attestation |
-| E14 | Verifiable receipts | Parcial **L** | L: recibos firmados Ed25519 y verificador offline del gateway | Integrarlo/publicarlo en GitHub, firmas/ack del backend, custodia KMS, evidencia inmutable |
-| E15 | Idempotency / semantics | Parcial **L** | L: SQLite backend idempotente y journal de incertidumbre de gateway | Publicación GitHub, reconciliación distribuida, efectos de herramientas reales, compensación |
+| E14 | Verifiable receipts | Parcial **G** | G: recibo Ed25519 del gateway con attestation Ed25519 independiente del backend, ambas verificables offline | KMS, cadena auditable fuerte y prueba independiente de efectos reales |
+| E15 | Idempotency / semantics | Parcial **G** | G: SQLite backend idempotente; journal y reconciliación read-only de resultados inciertos conservando historia | HA, reconciliación distribuida, transacciones sobre herramientas reales y compensación |
 | E16 | High availability / recovery | **Pendiente** | L: marca `upstream-uncertain` evita reintento ciego; no HA | Arquitectura distribuida, failover, backups, RPO/RTO, resiliencia |
 | E17 | Resource / cost governance | Parcial | G: AI free-first con verificación de catálogo y bloqueo de fallback pagado | Cuotas por tenant/agente, bucles, CPU/memoria, presupuestos y alertas |
 | E18 | Human approval / governance | **Pendiente** | No hay workflow de aprobación humana de acciones protegidas | Dual control, expiración, vinculación de argumentos, auditoría |
@@ -65,9 +65,9 @@
 
 ## Bloqueantes y secuencia de trabajo
 
-**P0 — Integridad del repositorio:** subir v0.95 de forma trazable en una rama/PR, revisar la diff con master, ejecutar su suite y **su Docker CI real**; no declarar v0.95 publicada hasta que esté en `master` con pruebas aprobadas.
+**P0 — Integridad del repositorio (CERRADA para el piloto):** v0.95 y v0.95.1 se fusionaron mediante PR #1 y PR #2 con suites Node, evaluaciones MCP y Docker aprobadas. No supone cierre empresarial de las épicas.
 
-**P0 — Seguridad auténtica:** completar E09–E13 con identidad real y recursos externos de bajo riesgo bajo una política `default deny` y no-bypass demostrado en cada entorno compatible; después E14–E15 con evidencias corroboradas por backend y recuperación correcta.
+**P0 — Seguridad auténtica (ABIERTA):** extender E09–E13 a identidad atestada y recursos reales de bajo riesgo bajo `default deny`, y demostrar no-bypass en cada entorno. E14–E15 ya incluyen evidencias sintéticas respaldadas por dos firmantes y conciliación sin replay; faltan KMS, HA, auditoría y semántica empresarial.
 
 **P0 — Quality gate:** convertir 350 `GAP` en tests genuinos cuando existan los controles correspondientes; crear E26 con fuzzing/chaos y E27 con medidas reproducibles.
 
