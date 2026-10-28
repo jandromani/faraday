@@ -1,6 +1,6 @@
 # FARADAY Graph — plug & use for MCP systems
 
-**Build 004: Iterations 1–4** — discovery, runtime observation, structural contracts, impact analysis, local packaging and reversible installation.
+**Build 005: Universal Adapter (Iterations 1–4 + HTTP bridge)** — discovery, runtime observation, structural contracts, impact analysis, local packaging and reversible installation.
 
 > See what your MCP agents depend on, observe what they invoke, detect breaking tool contract changes, and introduce FARADAY without changing your prompts or orchestration code.
 
@@ -9,7 +9,7 @@
 ## Requirements
 
 - Node.js >=22.16 with built-in `node:sqlite` (an experimental warning may appear under Node 22).
-- For observation: an MCP client using a **stdio** server. Remote HTTP MCP servers are inventoried but not proxied.
+- For observation: a compatible MCP client using **stdio**, including a Streamable HTTP server reachable via the stdio-to-HTTP adapter (HTTPS or loopback HTTP).
 - Permission to read and optionally modify the chosen MCP configuration file. Global scans require explicit `--include-global`.
 
 ## Five-minute local installation
@@ -20,6 +20,7 @@ cd agentic
 npm link                    # installs 'faraday' locally/globally using npm link
 faraday init --root /path/to/agent-project
 faraday doctor --root /path/to/agent-project
+faraday onboard --root /path/to/agent-project
 faraday scan --root /path/to/agent-project
 faraday serve --db /path/to/agent-project/.faraday/graph.sqlite
 ```
@@ -29,6 +30,7 @@ The web UI prints a loopback URL with a one-time access token. Only metadata is 
 ### Observe real calls, reversibly
 
 ```bash
+faraday install --dry-run --config /path/to/agent-project/.mcp.json --server my-server
 faraday install --config /path/to/agent-project/.mcp.json --server my-server
 # Restart the MCP client and call existing tools.
 faraday serve --db /path/to/agent-project/.faraday/graph.sqlite
@@ -44,7 +46,7 @@ faraday install --config /path/to/agent-project/.mcp.json --server my-server \
   --db /path/to/agent-project/.faraday/graph.sqlite
 ```
 
-The installer wraps one selected **strict-JSON stdio MCP server** and privately backs up the original launch entry in `.faraday/targets/`. Backups may contain credentials and must remain private. The proxy passes the MCP wire bytes unchanged; it does not enforce Gate policies. `uninstall` refuses to overwrite a wrapper modified externally.
+The installer wraps one selected **strict-JSON stdio or Streamable HTTP MCP server** and privately backs up the original launch entry in `.faraday/targets/`. Backups may contain credentials and must remain private. For stdio it forwards the original wire bytes unchanged. For HTTP servers it converts JSON-RPC stdio frames into authenticated HTTP POST requests and translates JSON/SSE responses back into JSON-RPC stdio frames, passing authorized tool calls through to the existing upstream. **The HTTP bridge is not transparent at the transport layer**, and neither adapter enforces Gate policies. `uninstall` refuses to overwrite a wrapper modified externally.
 
 ### Iteration 3 — Contracts and impact analysis
 
@@ -88,7 +90,7 @@ npm run test:all
 npm pack --dry-run               # check contents of a local distributable
 ```
 
-**Supported formats:** `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `mcp.json`; `mcpServers` and VS Code `servers`. Global discovery is optional. HTTP MCP config inventory works, while HTTP proxy interception does not. JSONC with comments can be scanned only if valid strict JSON and is deliberately not rewritten.
+**Supported formats:** `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`, `mcp.json`; `mcpServers` and VS Code `servers`. Global discovery is optional. Streamable HTTP can be observed through an installed stdio-to-HTTP bridge on clients supporting stdio. Legacy HTTP+SSE (`type: "sse"`) is inventoried but not bridged. Modern request-scoped SSE is supported; independent legacy GET streams, resumable SSE and all possible MCP protocol-version combinations are not supported. JSONC with comments can be scanned only if valid strict JSON and is deliberately not rewritten.
 
 **Safe rollback:** `uninstall` restores each instrumented server from a private backup; it does not delete collected events or database files. To remove local graph data, stop the viewer, inspect `.faraday/` and delete it manually. No automatic destructive cleanup is performed.
 
@@ -97,11 +99,13 @@ npm pack --dry-run               # check contents of a local distributable
 ```text
 faraday init [--root PATH] [--dry-run]
 faraday doctor [--root PATH] [--json]
+faraday onboard [--root PATH] [--json]
 faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
-faraday install --config FILE --server NAME [--db PATH]
+faraday install --config FILE --server NAME [--db PATH] [--dry-run]
 faraday uninstall --config FILE --server NAME
 faraday hook --config FILE --server NAME [--db PATH]
 faraday proxy --config FILE --server NAME [--db PATH] [--debug-stderr]
+faraday bridge --config FILE --server NAME [--db PATH]
 faraday graph [--db PATH] [--format json|mermaid]
 faraday contracts snapshot [--db PATH] --out FILE
 faraday contracts compare --base FILE --current FILE [--json] [--fail-on-breaking]
@@ -114,9 +118,11 @@ faraday demo
 
 ```mermaid
 flowchart LR
-  Client[MCP Client] --> Proxy[Transparent stdio Proxy]
-  Proxy --> Real[MCP Server]
-  Proxy -. Sanitized metadata .-> DB[(SQLite Graph + Contracts)]
+  Client[MCP Client] --> Adapter[Universal stdio adapter]
+  Adapter --> Local[Local stdio MCP Server]
+  Adapter --> Bridge[HTTP Bridge]
+  Bridge --> Remote[HTTPS Streamable HTTP Server]
+  Adapter -. Sanitized metadata .-> DB[(SQLite Graph + Contracts)]
   DB --> UI[Local browser UI]
   DB --> Snapshot[Contract snapshots]
   Snapshot --> Diff[Breaking / Additive / Review]
@@ -126,6 +132,7 @@ flowchart LR
 ## Privacy and security
 
 - No model prompts, full tool arguments, results, raw HTTP URLs, environment variable values or schema descriptions are recorded by Graph. Only conservative structural schemas and metadata are stored. Some tool/property names can still be revealing, so treat `.faraday` as private.
+- For remote MCP, the adapter forwards configured auth headers in memory, follows **no redirects**, and refuses plaintext non-loopback URLs. HTTP credentials are retained only in the private mode-0600 configuration backup, not in events. Environment placeholders like `${MCP_TOKEN}` are resolved at runtime from the bridge process environment.
 - The proxy executes the previously configured command with its provided environment. **Do not** use untrusted MCP configurations. `init`, `doctor`, `scan`, `contracts` and `serve` do not execute tools.
 - A local HTTP viewer binds exclusively to `127.0.0.1`, uses an ephemeral session key and `no-store` responses. Do not share its URL.
 - Graph is an **observer**, not an enforcement/security boundary. Client workflows using direct API calls or another uninstrumented MCP path are invisible.
@@ -134,6 +141,40 @@ flowchart LR
 
 ## Test & release readiness
 
-`npm test` runs offline unit and integration tests, including real child process MCP forwarding, SQLite persistence, safe contract scrubbing and comparisons, generated regression execution, safe setup and idempotence, viewer authentication and no-leak expectations. CI is designed for Node.js 22 and 24.
+`npm test` runs offline unit and integration tests, including real child process MCP forwarding, SQLite persistence, safe contract scrubbing and comparisons, generated regression execution, safe setup and idempotence, viewer authentication and no-leak expectations. CI runs on Node.js 22 and 24 and exercises an actual local HTTP MCP server (JSON and SSE responses), as well as the existing stdio integration and security regressions.
 
 The npm package is deliberately marked `private` until validated for public distribution. You can use `npm link` or local `npm install` without publishing it.
+
+## Build 005 — Universal Adapter onboarding
+
+**Fastest path** (from a project that already has an MCP config):
+
+```bash
+faraday init --root . --dry-run
+faraday init --root .
+faraday onboard --root .
+faraday install --dry-run --config .mcp.json --server MY_SERVER
+faraday install --config .mcp.json --server MY_SERVER
+# Restart your MCP client; the first tools/list event populates the graph.
+faraday serve --db .faraday/graph.sqlite
+# Restore the original entry without changing other servers:
+faraday uninstall --config .mcp.json --server MY_SERVER
+```
+
+`onboard` gives a JSON plan with the detected project config paths and install arguments. It never executes an MCP server or writes its config. `install --dry-run` validates the target but never writes files. The installation rewrites **one server entry** to launch FARADAY over stdio, with a private rollback file in the configuration directory's `.faraday/targets/` folder.
+
+For Streamable HTTP sources (e.g. `type: "http"` and `url: "https://mcp.example/mcp"`), the new `faraday bridge` provides an stdio-to-HTTP adapter. Client HTTP headers are sourced from the original private config, with `${ENV_VAR}` placeholders supported; the bridge never prints or persists their values. This is an adapter for an existing stdio-compatible MCP client, **not** an always-on public HTTP gateway, and changing the server entry requires restarting the client.
+
+### Tested transport scope
+
+- ✅ MCP stdio clients with JSON-RPC newline framing and locally launched stdio servers.
+- ✅ Stdio client to local Streamable HTTP fixture using JSON response or request-scoped SSE response.
+- ✅ Optional session ID header propagation on earlier Streamable HTTP servers.
+- ✅ Tool contract and structured header mirroring (`Mcp-Method`, `Mcp-Name`, subset of `x-mcp-header`).
+- ✅ Remote URL restrictions (HTTPS mandatory except loopback HTTP); no HTTP redirects (protects credentials).
+- ✅ Offline install preview, private backup and explicit uninstall.
+- ⚠️ The 2026-07-28 transport introduced new per-request metadata requirements. This adapter passes through client metadata and cannot automatically translate every older stdio client into modern MCP semantics.
+- ⚠️ Legacy HTTP+SSE server-initiated GET streams, resumable SSE, custom protocol extensions, `x-mcp-header` in composition schemas and non-stdio clients remain outside this tested scope.
+- ⚠️ This is observational integration, not a provably enforced zero-trust boundary. The existing tools execute normally and remain accessible through any uninstrumented routes.
+
+**Privacy:** URLs and bearer tokens from the configuration are not written to Graph. All credentials should remain private in project configs and private backups, not committed to version control. Even sanitized tool and property names may reveal information; protect `.faraday/`.

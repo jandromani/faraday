@@ -1,8 +1,8 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
-  "description": "FARADAY: local MCP discovery, observation, privacy-first tool contracts and reversible setup",
+  "description": "FARADAY: plug-and-use local MCP graph, stdio/HTTP observation, privacy-first contracts and reversible installation",
   "type": "module",
   "bin": {
     "faraday": "./bin/faraday.js"
@@ -17,7 +17,8 @@
   },
   "license": "Apache-2.0",
   "exports": {
-    "./contracts": "./lib/contracts.js"
+    "./contracts": "./lib/contracts.js",
+    "./http-bridge": "./lib/http-bridge.js"
   },
   "files": [
     "bin",

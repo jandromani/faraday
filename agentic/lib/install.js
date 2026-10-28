@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, chmodSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, chmodSync, statSync, lstatSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { configServers } from './discover.js';
+import { configuredHttpServer } from './http-bridge.js';
 
 const object = x => x && typeof x === 'object' && !Array.isArray(x);
 const safeFile = (path,data,mode=0o600) => {
@@ -26,20 +27,33 @@ function targetFile(configFile,server){
   const dir=join(dirname(p),'.faraday','targets');
   return {dir,file:join(dir,id+'.json')};
 }
-export function installProxy({configFile,server,db,binPath,nodePath}) {
+export function installProxy({configFile,server,db,binPath,nodePath,dryRun=false}) {
   if(!server||!configFile)throw Error('install requires --config and --server');
   const path=resolve(configFile);
+  if(lstatSync(path).isSymbolicLink()) throw Error('Refusing symlinked MCP configuration');
   const text=readFileSync(path,'utf8');
   // Rewriting JSONC would destroy user comments. Refuse rather than silently do so.
   let json;
   try {json=JSON.parse(text);} catch {throw Error('Auto-install requires strict JSON; use hook for commented JSONC files');}
   const key=locate(json,server);
   const original=json[key][server];
-  if(!object(original)||configServers({[key]:{[server]:original}})[0]?.transport!=='stdio')
-    throw Error('Auto-install supports only valid stdio MCP server entries');
-  if(typeof original.command!=='string'||!original.command)throw Error('Missing server command');
+  if(!object(original)) throw Error('Invalid MCP server entry');
+  const transport=configServers({[key]:{[server]:original}})[0]?.transport;
+  if(transport==='stdio' && (typeof original.command!=='string'||!original.command))
+    throw Error('Missing server command');
+  if(transport!=='stdio' && transport!=='http') throw Error('Unsupported MCP transport');
+  if(transport==='http' && !['http','streamable-http',undefined].includes(original.type))
+    throw Error('Legacy HTTP+SSE transport not supported');
+  if(transport==='http') configuredHttpServer(path,server);
+  const command=transport==='http'?'bridge':'proxy';
   const {dir,file}=targetFile(path,server);
   if(existsSync(file))throw Error('Already installed; use uninstall before reinstall');
+  if(dryRun) return {server,config:path,transport,command,changed:false,dryRun:true};
+  const parent=join(dirname(path),'.faraday');
+  for (const check of [parent,dir]) {
+    if (existsSync(check) && (lstatSync(check).isSymbolicLink() || !lstatSync(check).isDirectory()))
+      throw Error('Unsafe FARADAY backup directory');
+  }
   mkdirSync(dir,{recursive:true,mode:0o700});
   chmodSync(dir,0o700);
   const source={ [key]:{[server]:original} };
@@ -47,25 +61,27 @@ export function installProxy({configFile,server,db,binPath,nodePath}) {
   // It is never committed or printed; owners should protect their local files.
   writeFileSync(file,JSON.stringify(source,null,2)+'\n',{encoding:'utf8',flag:'wx',mode:0o600});
   chmodSync(file,0o600);
-  const proxy={command:nodePath,args:[binPath,'proxy','--config',file,'--server',server,'--db',resolve(db)]};
+  const proxy={command:nodePath,args:[binPath,command,'--config',file,'--server',server,'--db',resolve(db)]};
   try {
     json[key][server]=proxy;
     const mode=statSync(path).mode & 0o777;
     safeFile(path,JSON.stringify(json,null,2)+'\n',mode);
   } catch(e) { try {unlinkSync(file);}catch{} throw e; }
-  return {server,config:path,backup:file,db:resolve(db)};
+  return {server,transport,config:path,backup:file,db:resolve(db)};
 }
 export function uninstallProxy({configFile,server}) {
   if(!server||!configFile)throw Error('uninstall requires --config and --server');
   const path=resolve(configFile);
+  if(lstatSync(path).isSymbolicLink()) throw Error('Refusing symlinked MCP configuration');
   const {file}=targetFile(path,server);
   if(!existsSync(file))throw Error('FARADAY backup not found');
+  if(lstatSync(file).isSymbolicLink())throw Error('Unsafe backup symlink');
   const current=JSON.parse(readFileSync(path,'utf8'));
   const previous=JSON.parse(readFileSync(file,'utf8'));
   const key=locate(previous,server);
   const activeKey=locate(current,server);
   if(key!==activeKey||!Array.isArray(current[key][server]?.args)
-      ||current[key][server].args[1]!=='proxy'
+      ||!['proxy','bridge'].includes(current[key][server].args[1])
       ||current[key][server].args[3]!==file) {
     throw Error('Config changed: refusing to overwrite; restore manually from private backup');
   }

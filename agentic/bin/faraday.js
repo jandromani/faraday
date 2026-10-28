@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { discover, readMcpConfig, configServers } from '../lib/discover.js';
 import { GraphStore, toMermaid } from '../lib/store.js';
 import { proxyMcp } from '../lib/proxy.js';
+import { bridgeMcp, configuredHttpServer } from '../lib/http-bridge.js';
 import { serveGraph } from '../lib/server.js';
 import { installProxy, uninstallProxy } from '../lib/install.js';
 import { runDemo } from '../lib/demo.js';
@@ -11,24 +12,27 @@ import { doctor, initialize } from '../lib/setup.js';
 import { compareSnapshots, readSnapshot, snapshotFromStore, saveSnapshot, generateRegressionTests } from '../lib/contracts.js';
 
 const appPath = fileURLToPath(import.meta.url);
-const usage = `FARADAY Graph 0.4.0 — local MCP discovery, observation, contracts and setup
+const usage = `FARADAY Graph 0.5.0 — local MCP discovery, observation, contracts and setup
 
 Usage:
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
   faraday graph [--db PATH] [--format json|mermaid]
   faraday proxy --config FILE --server NAME [--db PATH] [--debug-stderr]
+  faraday bridge --config FILE --server NAME [--db PATH]
   faraday hook --config FILE --server NAME [--db PATH]
-  faraday install --config FILE --server NAME [--db PATH]
+  faraday install --config FILE --server NAME [--db PATH] [--dry-run]
   faraday uninstall --config FILE --server NAME
   faraday serve [--db PATH] [--port 0]
   faraday doctor [--root PATH] [--json]
+  faraday onboard [--root PATH] [--json]
   faraday init [--root PATH] [--dry-run]
   faraday contracts snapshot [--db PATH] --out FILE
   faraday contracts compare --base FILE --current FILE [--json] [--fail-on-breaking]
   faraday contracts generate --base FILE --current FILE --out DIR
   faraday demo
 
-Only 'proxy' launches a configured MCP server. 'install' rewrites the selected
+Only 'proxy' launches a local MCP server. 'bridge' connects to a pinned
+HTTPS or loopback Streamable HTTP endpoint. 'install' rewrites the selected
 strict-JSON server entry (reversible with 'uninstall') and stores a private
 mode-0600 backup containing the original config. 'hook' never changes files.
 Neither scan nor serve executes MCP tools.
@@ -56,6 +60,19 @@ async function main() {
     if(flags.json) process.stdout.write(JSON.stringify(result,null,2)+'\n');
     else process.stdout.write('FARADAY DOCTOR\n'+result.checks.map(c=>`  ${c.ok?'OK':'WARN'}  ${c.name}: ${c.detail}\n`).join('')+
       result.warnings.map(w=>'  warning: '+w+'\n').join('')+`  Ready for initial graph: ${result.ready}\n`);
+  } else if (cmd==='onboard') {
+    const result=doctor({root:flags.root,includeGlobal:!!flags['include-global']});
+    const suggestions=result.servers.map(s=>{
+      const location=s.source.startsWith('workspace:') ? resolve(result.root,s.source.slice(10)) : null;
+      return {client:s.client,server:s.server,transport:s.transport,configFile:location,
+        steps:s.transport==='sse' ? ['Migrate legacy HTTP+SSE server to Streamable HTTP'] :
+          location ? [
+            ['faraday','install','--dry-run','--config',location,'--server',s.server],
+            ['faraday','install','--config',location,'--server',s.server],
+            ['faraday','serve']
+          ] : ['Find the source configuration file and use faraday hook (read-only)']};
+    });
+    process.stdout.write(JSON.stringify({ready:result.ready,checks:result.checks,warnings:result.warnings,suggestions},null,2)+'\n');
   } else if (cmd==='init') {
     const result=initialize({root:flags.root,dryRun:!!flags['dry-run']});
     process.stdout.write(JSON.stringify(result,null,2)+'\n');
@@ -95,17 +112,20 @@ async function main() {
     } finally {store.close();}
   } else if (cmd==='proxy') {
     proxyMcp({configFile:flags.config,server:flags.server,database:fileDB(flags),debugStderr:!!flags['debug-stderr']});
+  } else if (cmd==='bridge') {
+    await bridgeMcp({configFile:flags.config,server:flags.server,database:fileDB(flags)});
   } else if (cmd==='hook') {
     if (!flags.config || !flags.server) throw Error('hook needs --config and --server');
     const found=configServers(readMcpConfig(resolve(flags.config))).find(x=>x.name===flags.server);
-    if (!found || found.transport!=='stdio') throw Error('Only named stdio servers can be wrapped');
+    if (!found || found.transport==='sse') throw Error('Only named stdio or Streamable HTTP servers can be wrapped');
+    if(found.transport==='http') configuredHttpServer(resolve(flags.config),flags.server);
     process.stdout.write(JSON.stringify({
       command:process.execPath,
-      args:[appPath,'proxy','--config',resolve(flags.config),'--server',flags.server,'--db',fileDB(flags)]
+      args:[appPath,found.transport==='http'?'bridge':'proxy','--config',resolve(flags.config),'--server',flags.server,'--db',fileDB(flags)]
     },null,2)+'\n');
   } else if (cmd==='install') {
-    const out=installProxy({configFile:flags.config,server:flags.server,db:fileDB(flags),binPath:appPath,nodePath:process.execPath});
-    process.stdout.write(`Installed FARADAY proxy for ${out.server} (uninstall is available).\n`);
+    const out=installProxy({configFile:flags.config,server:flags.server,db:fileDB(flags),binPath:appPath,nodePath:process.execPath,dryRun:!!flags['dry-run']});
+    process.stdout.write((flags['dry-run']?'Plan only':'Installed')+` FARADAY ${out.transport} adapter for ${out.server} (uninstall is available).\n`);
   } else if (cmd==='uninstall') {
     const out=uninstallProxy({configFile:flags.config,server:flags.server});
     process.stdout.write(`Uninstalled FARADAY proxy for ${out.server}; original entry restored.\n`);

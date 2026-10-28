@@ -26,7 +26,7 @@ export function doctor({root=process.cwd(),includeGlobal=false}={}){
     {name:'gitignore',ok:ignored,detail:ignored?'Private .faraday/ ignored':'Add .faraday/ to .gitignore before storing metadata'},
     {name:'mcp-configs',ok:report.servers.length>0,detail:`${report.servers.length} compatible server configurations discovered (not verified reachable)`},
     {name:'config-parse',ok:report.warnings.length===0,detail:`${report.warnings.length} config warnings`},
-    {name:'stdio',ok:report.servers.some(e=>e.transport==='stdio'),detail:'Runtime observation requires a stdio MCP server'},
+    {name:'stdio',ok:report.servers.some(e=>e.transport==='stdio'||e.transport==='http'),detail:'Local proxy or HTTP bridge available for stdio and Streamable HTTP MCP servers'},
   ];
   return {root:path,readOnly:true,checks,servers:report.servers,warnings:report.warnings,
     ready:checks.filter(c=>c.name==='node'||c.name==='gitignore'||c.name==='config-parse').every(c=>c.ok),
