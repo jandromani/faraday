@@ -1,0 +1,32 @@
+name: FARADAY Agentic Graph CI
+on:
+  push:
+    paths:
+      - 'agentic/**'
+      - '.github/workflows/agentic-ci.yml'
+  pull_request:
+    paths:
+      - 'agentic/**'
+      - '.github/workflows/agentic-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  graph:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Execute discovery + proxy integration tests
+        working-directory: agentic
+        run: npm test
+      - name: Execute synthetic runtime demo
+        working-directory: agentic
+        run: |
+          node bin/faraday.js demo --db /tmp/faraday-ci.sqlite
+          node bin/faraday.js graph --db /tmp/faraday-ci.sqlite --format mermaid | grep 'flowchart LR'
