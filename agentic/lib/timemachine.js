@@ -80,14 +80,19 @@ export function captureSynthetic({seed=42,policy,intents}={}){
     const record={...entry,prevHash};const hash=sha(record);steps.push({...record,hash});prevHash=hash;
   }
   return {format:FORMAT,version:1,kind:'offline-synthetic',seed,policy:fixture.policy,steps,rootHash:prevHash,
+    metadataHash:sha({format:FORMAT,version:1,kind:'offline-synthetic',seed,policy:fixture.policy,limitations:[
+      'Hash chain provides alteration detection, not signed provenance or immutable storage.',
+      'Only synthetic intents and in-memory state. No real MCP tool execution, prompts, network or filesystem side effects.']}),
     limitations:['Hash chain provides alteration detection, not signed provenance or immutable storage.',
       'Only synthetic intents and in-memory state. No real MCP tool execution, prompts, network or filesystem side effects.']};
 }
 export function verifyTrace(trace){
+  assertKeys(trace,['format','version','kind','seed','policy','steps','rootHash','metadataHash','limitations']);
   if(!isObj(trace)||trace.format!==FORMAT||trace.version!==1||trace.kind!=='offline-synthetic'||
      !Number.isSafeInteger(trace.seed)||trace.seed<0||!Array.isArray(trace.steps)||trace.steps.length>256||
      !Array.isArray(trace.limitations)||trace.limitations.length>12)throw Error('Invalid synthetic trace envelope');
   validatePolicy(trace.policy);
+  if(trace.metadataHash!==sha({format:trace.format,version:trace.version,kind:trace.kind,seed:trace.seed,policy:trace.policy,limitations:trace.limitations}))throw Error('TimeMachine metadata corruption');
   let previous='0'.repeat(64);
   for(const [i,step] of trace.steps.entries()){
     assertKeys(step,['seq','intent','outcome','stateHash','prevHash','hash']);
