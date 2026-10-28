@@ -6,6 +6,20 @@
 
 **Status:** local, offline-first development tool. **Not** a mandatory security gateway, code semantic indexer, real agent identity provider, or proof of zero-bypass execution. It is not yet published to npm. No claims of production certification or universal compatibility.
 
+## FARADAY Shield 0.7 — Opt-in enforcement and security hardening
+
+Shield adds a default-deny per-server tool allowlist, DNS-pinned HTTP egress validation against SSRF, bounded responses, local posture auditing, restricted SQLite permissions, and pseudonymized external AI metadata. The original discovery and observation modes remain available.
+
+```bash
+faraday security audit --root .
+faraday security policy-template --server my-server > .faraday/shield.json
+# Edit allowedTools to list only explicitly approved tool names.
+faraday install --dry-run --config .mcp.json --server my-server --policy .faraday/shield.json
+faraday install --config .mcp.json --server my-server --policy .faraday/shield.json
+```
+
+**No security product can guarantee 100% protection.** FARADAY does not yet prevent a compromised agent from bypassing the proxy and calling an API directly; it also does not provide workload attestation, resource-level authorization, or a process sandbox. Read the [threat model and documented limitations](SECURITY.md).
+
 ## Requirements
 
 - Node.js >=22.16 with built-in `node:sqlite` (an experimental warning may appear under Node 22).
