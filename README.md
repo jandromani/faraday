@@ -1,5 +1,24 @@
 # FARADAY — Trust Fabric
 
+## FARADAY v0.9.0 — Authority Preview (latest)
+
+**Graph + Shield + Authority:** signed Ed25519 capabilities, agent proof-of-possession, exact resource/action policies, transactional replay protection and a synthetic gateway reachable by an isolated dummy agent. The Docker example keeps the protected backend on a separate private network. **Not production zero-trust, not real SPIFFE/OAuth/MCP authentication, no real payments.**
+
+- [Developer Preview source and CLI](agentic/README.md)
+- [Authority v0.9 architecture, verification and security limitations](agentic/docs/V09_AUTHORITY_PREVIEW.md)
+- [CI: Node.js 22/24 plus network-isolation job](https://github.com/jandromani/faraday/actions)
+
+```bash
+cd agentic
+npm run test:all
+npm run authority
+npm run authority:eval
+npm run lab:docker # Requires Docker; demonstrates the isolated synthetic backend
+```
+
+---
+
+
 ## FARADAY Graph — Iterations 1 and 2 (implemented)
 
 The [agentic/](agentic/) package is an installable **local Node.js CLI** that inventories MCP client configurations, builds a graph in SQLite and observes real `stdio` MCP calls through a transparent proxy. It includes a local interactive SVG topology viewer, Mermaid/JSON exports, reversible installation and a synthetic demo.
