@@ -42,3 +42,7 @@ A tool named read_document may still read sensitive resources. Production claims
 CI tests Node.js 22 and 24. Local security audit checks permissions but is not a penetration test. Keep .faraday private and excluded from version control. No paid fallback for external OpenRouter inference. Catalogue prices can change; nobody can promise 0 USD under all conditions.
 
 Sources: [MCP security best practices](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/docs/2026-07-28/tutorials/security/security_best_practices.mdx), [OWASP MCP security cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/MCP_Security_Cheat_Sheet.html), [OWASP MCP Top 10](https://owasp.org/projects/mcp-top-10/).
+
+## Build 008 findings
+
+FARADAY Lab's 1,000 fixed synthetic scenarios contain 350 explicitly unsupported evaluations; the other 650 are repeated deterministic checks over a narrow corpus, not a security percentage. `faraday lab run --fail-on-gap` exits 2 as expected. TrustDiff compares tool allowlists, not semantic authority or direct API reachability. See [scope](docs/V08_SCOPE.md).
