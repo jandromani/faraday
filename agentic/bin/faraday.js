@@ -11,17 +11,18 @@ import { runDemo } from '../lib/demo.js';
 import { doctor, initialize } from '../lib/setup.js';
 import { compareSnapshots, readSnapshot, snapshotFromStore, saveSnapshot, generateRegressionTests } from '../lib/contracts.js';
 import { fetchFreeModels, explainFree, graphFromDatabase, makeContractAdvisoryData } from '../lib/ai-free.js';
+import {auditWorkspace} from '../lib/security-audit.js';
 
 const appPath = fileURLToPath(import.meta.url);
-const usage = `FARADAY Graph 0.6.0 — local MCP discovery, observation, contracts and setup
+const usage = `FARADAY Graph 0.7.0 — local MCP discovery, observation, contracts and setup
 
 Usage:
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
   faraday graph [--db PATH] [--format json|mermaid]
-  faraday proxy --config FILE --server NAME [--db PATH] [--debug-stderr]
-  faraday bridge --config FILE --server NAME [--db PATH]
+  faraday proxy --config FILE --server NAME [--db PATH] [--debug-stderr] [--policy FILE]
+  faraday bridge --config FILE --server NAME [--db PATH] [--policy FILE]
   faraday hook --config FILE --server NAME [--db PATH]
-  faraday install --config FILE --server NAME [--db PATH] [--dry-run]
+  faraday install --config FILE --server NAME [--db PATH] [--dry-run] [--policy FILE]
   faraday uninstall --config FILE --server NAME
   faraday serve [--db PATH] [--port 0]
   faraday doctor [--root PATH] [--json]
@@ -33,6 +34,8 @@ Usage:
   faraday ai models
   faraday ai graph [--db PATH] [--send-metadata] [--model FREE_MODEL]
   faraday ai contracts --base FILE --current FILE [--send-metadata] [--model FREE_MODEL]
+  faraday security audit [--root PATH]
+  faraday security policy-template --server NAME
   faraday demo
 
 Only 'proxy' launches a local MCP server. 'bridge' connects to a pinned
@@ -49,7 +52,7 @@ function argsOf(args) {
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
     if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port','out','base','current','model'].includes(key)) throw new Error('Unknown option');
+    if (!['root','db','format','config','server','port','out','base','current','model','policy'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -60,7 +63,15 @@ async function main() {
   const [cmd,...argv]=process.argv.slice(2);
   const flags=argsOf(argv);
   if (!cmd || cmd === 'help' || cmd === '--help') {process.stdout.write(usage);return;}
-  if (cmd==='doctor') {
+  if(cmd==='security') {
+    if(flags._[0]==='audit'){
+      const report=auditWorkspace(flags.root||process.cwd());
+      process.stdout.write(JSON.stringify(report,null,2)+'\n');
+      if(report.failures)process.exitCode=2;
+    } else if(flags._[0]==='policy-template'&&flags.server){
+      process.stdout.write(JSON.stringify({version:1,mode:'enforce',maxArgumentBytes:8192,allowedTools:{[flags.server]:[]}},null,2)+'\n');
+    } else throw Error('Use security audit or policy-template --server NAME');
+  } else if (cmd==='doctor') {
     const result=doctor({root:flags.root,includeGlobal:!!flags['include-global']});
     if(flags.json) process.stdout.write(JSON.stringify(result,null,2)+'\n');
     else process.stdout.write('FARADAY DOCTOR\n'+result.checks.map(c=>`  ${c.ok?'OK':'WARN'}  ${c.name}: ${c.detail}\n`).join('')+
@@ -79,7 +90,7 @@ async function main() {
     });
     process.stdout.write(JSON.stringify({ready:result.ready,checks:result.checks,warnings:result.warnings,suggestions},null,2)+'\n');
   } else if (cmd==='init') {
-    const result=initialize({root:flags.root,dryRun:!!flags['dry-run']});
+    const result=initialize({root:flags.root,dryRun:!!flags['dry-run'],policyFile:flags.policy});
     process.stdout.write(JSON.stringify(result,null,2)+'\n');
   } else if (cmd==='ai') {
     const action=flags._[0];
@@ -134,9 +145,9 @@ async function main() {
       process.stdout.write(flags.format==='mermaid' ? toMermaid(data) : JSON.stringify(data,null,2)+'\n');
     } finally {store.close();}
   } else if (cmd==='proxy') {
-    proxyMcp({configFile:flags.config,server:flags.server,database:fileDB(flags),debugStderr:!!flags['debug-stderr']});
+    proxyMcp({configFile:flags.config,server:flags.server,database:fileDB(flags),debugStderr:!!flags['debug-stderr'],policyFile:flags.policy});
   } else if (cmd==='bridge') {
-    await bridgeMcp({configFile:flags.config,server:flags.server,database:fileDB(flags)});
+    await bridgeMcp({configFile:flags.config,server:flags.server,database:fileDB(flags),policyFile:flags.policy});
   } else if (cmd==='hook') {
     if (!flags.config || !flags.server) throw Error('hook needs --config and --server');
     const found=configServers(readMcpConfig(resolve(flags.config))).find(x=>x.name===flags.server);
@@ -144,7 +155,7 @@ async function main() {
     if(found.transport==='http') configuredHttpServer(resolve(flags.config),flags.server);
     process.stdout.write(JSON.stringify({
       command:process.execPath,
-      args:[appPath,found.transport==='http'?'bridge':'proxy','--config',resolve(flags.config),'--server',flags.server,'--db',fileDB(flags)]
+      args:[appPath,found.transport==='http'?'bridge':'proxy','--config',resolve(flags.config),'--server',flags.server,'--db',fileDB(flags),...(flags.policy?['--policy',resolve(flags.policy)]:[])]
     },null,2)+'\n');
   } else if (cmd==='install') {
     const out=installProxy({configFile:flags.config,server:flags.server,db:fileDB(flags),binPath:appPath,nodePath:process.execPath,dryRun:!!flags['dry-run']});
