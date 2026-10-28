@@ -1,5 +1,29 @@
 # FARADAY — Trust Fabric
 
+## FARADAY Graph — Iterations 1 and 2 (implemented)
+
+The [agentic/](agentic/) package is an installable **local Node.js CLI** that inventories MCP client configurations, builds a graph in SQLite and observes real `stdio` MCP calls through a transparent proxy. It includes a local interactive SVG topology viewer, Mermaid/JSON exports, reversible installation and a synthetic demo.
+
+```bash
+cd agentic
+npm link
+faraday demo
+faraday serve
+# scan an existing project:
+faraday scan --root /path/to/project
+# wrap a selected stdio server and restore it later:
+faraday install --config /path/to/project/.mcp.json --server my-server
+faraday uninstall --config /path/to/project/.mcp.json --server my-server
+```
+
+No npm package is published; install from the repository. Node 22.16+ is required for built-in SQLite. These are **observation-only** features: the proxy does not block any calls or implement mandatory network enforcement. Runtime HTTP/SSE proxying and code-indexing are not part of these iterations.
+
+- [Full usage, architecture, security caveats and limitations](agentic/README.md)
+- [Agentic Graph CI](.github/workflows/agentic-ci.yml)
+
+---
+
+
 ## Build 002 — Asymmetric authority and authenticated agent proof (implemented)
 
 Build 002 adds **Ed25519** capability signing (private key in a separate issuer, public key in the Gate), a signed agent intent and execution proof bound to the capability fingerprint, pinned agent public keys, anti-replay checks and a loopback-only separate issuer process for development.
