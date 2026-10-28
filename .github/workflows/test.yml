@@ -1,11 +1,11 @@
-name: Test FARADAY Gate
+name: FARADAY Security Tests
 on:
   push:
   pull_request:
 permissions:
   contents: read
 jobs:
-  build001:
+  security:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -15,7 +15,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Run security tests
+      - name: Install cryptography
+        run: python -m pip install -r requirements.txt
+      - name: Execute Build 001 and Build 002 security tests
         run: python -m unittest discover -s tests -v
-      - name: Run non-executing demo
+      - name: Verify Build 001 demo
         run: python faraday.py demo
+      - name: Verify Build 002 separate-process integration
+        run: python scripts/demo_v2.py
