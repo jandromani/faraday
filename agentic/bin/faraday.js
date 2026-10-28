@@ -10,9 +10,10 @@ import { installProxy, uninstallProxy } from '../lib/install.js';
 import { runDemo } from '../lib/demo.js';
 import { doctor, initialize } from '../lib/setup.js';
 import { compareSnapshots, readSnapshot, snapshotFromStore, saveSnapshot, generateRegressionTests } from '../lib/contracts.js';
+import { fetchFreeModels, explainFree, graphFromDatabase, makeContractAdvisoryData } from '../lib/ai-free.js';
 
 const appPath = fileURLToPath(import.meta.url);
-const usage = `FARADAY Graph 0.5.0 — local MCP discovery, observation, contracts and setup
+const usage = `FARADAY Graph 0.6.0 — local MCP discovery, observation, contracts and setup
 
 Usage:
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
@@ -29,13 +30,17 @@ Usage:
   faraday contracts snapshot [--db PATH] --out FILE
   faraday contracts compare --base FILE --current FILE [--json] [--fail-on-breaking]
   faraday contracts generate --base FILE --current FILE --out DIR
+  faraday ai models
+  faraday ai graph [--db PATH] [--send-metadata] [--model FREE_MODEL]
+  faraday ai contracts --base FILE --current FILE [--send-metadata] [--model FREE_MODEL]
   faraday demo
 
 Only 'proxy' launches a local MCP server. 'bridge' connects to a pinned
 HTTPS or loopback Streamable HTTP endpoint. 'install' rewrites the selected
 strict-JSON server entry (reversible with 'uninstall') and stores a private
 mode-0600 backup containing the original config. 'hook' never changes files.
-Neither scan nor serve executes MCP tools.
+Neither scan nor serve executes MCP tools. AI is optional, advisory-only
+and requires explicit consent to send graph metadata to a free model.
 `;
 function argsOf(args) {
   const out = { _:[] };
@@ -43,8 +48,8 @@ function argsOf(args) {
     const t=args[i];
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
-    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port','out','base','current'].includes(key)) throw new Error('Unknown option');
+    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata'].includes(key)) {out[key]=true;continue;}
+    if (!['root','db','format','config','server','port','out','base','current','model'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -76,6 +81,24 @@ async function main() {
   } else if (cmd==='init') {
     const result=initialize({root:flags.root,dryRun:!!flags['dry-run']});
     process.stdout.write(JSON.stringify(result,null,2)+'\n');
+  } else if (cmd==='ai') {
+    const action=flags._[0];
+    if (action==='models') {
+      const models=await fetchFreeModels();
+      process.stdout.write(JSON.stringify({provider:'openrouter',freeOnly:true,models},null,2)+'\n');
+    } else if (action==='graph' || action==='contracts') {
+      const metadata=action==='graph' ? graphFromDatabase(fileDB(flags)) :
+        (()=>{if(!flags.base||!flags.current) throw Error('ai contracts needs --base and --current');
+           return makeContractAdvisoryData(flags.base,flags.current);})();
+      if (!flags['send-metadata']) {
+        process.stdout.write(JSON.stringify({mode:'offline-preview',metadata,
+          note:'No external request sent. Add --send-metadata after reviewing and approving this metadata.'},null,2)+'\n');
+      } else {
+        process.stderr.write('[FARADAY] Sending graph/contract metadata to an OpenRouter free model (not agent prompts, arguments or tool results).\n');
+        const result=await explainFree({metadata,model:flags.model||'openrouter/free',consent:true});
+        process.stdout.write(JSON.stringify(result,null,2)+'\n');
+      }
+    } else throw Error('Unknown AI command');
   } else if (cmd==='contracts') {
     const action=flags._[0];
     if(action==='snapshot') {
