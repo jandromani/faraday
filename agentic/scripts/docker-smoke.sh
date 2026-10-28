@@ -12,8 +12,4 @@ export FARADAY_HOST_GID="$(id -g)"
 # Pull image before creating 30-second proof-of-possession credentials.
 docker compose -f deploy/lab/compose.yml pull --quiet
 node scripts/prepare-authority-lab.mjs "$LAB_DIR"
-export FARADAY_LAB_DIR="$LAB_DIR"
-export FARADAY_APP_DIR="$ROOT"
-export FARADAY_HOST_UID="$(id -u)"
-export FARADAY_HOST_GID="$(id -g)"
 docker compose -f deploy/lab/compose.yml up --abort-on-container-exit --exit-code-from dummy-agent
