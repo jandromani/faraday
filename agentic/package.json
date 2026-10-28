@@ -1,6 +1,6 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.95.0",
+  "version": "0.95.1",
   "private": true,
   "description": "FARADAY Secure Pilot: protected MCP tool path, durable synthetic idempotency, signed gateway receipts, network-isolation fixtures",
   "type": "module",
@@ -40,6 +40,8 @@
     "./authority-fixture": "./lib/authority-fixture.js",
     "./pilot-mcp": "./lib/pilot-mcp.js",
     "./pilot-receipts": "./lib/pilot-receipts.js",
+    "./pilot-backend-attestation": "./lib/backend-attestation.js",
+    "./pilot-reconcile": "./lib/pilot-reconcile.js",
     "./pilot-backend": "./lib/pilot-backend.js"
   },
   "files": [
