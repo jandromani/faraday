@@ -19,11 +19,14 @@ import {runAuthorityDemo,runAuthorityEvaluations} from '../lib/authority-demo.js
 import {runPilotDemo} from '../lib/pilot-demo.js';
 import {runPilotEvaluations} from '../lib/pilot-evals.js';
 import {verifyReceipt} from '../lib/pilot-receipts.js';
+import {LocalSentinel} from '../lib/sentinel.js';
+import {signApproval,verifyApprovals} from '../lib/approvals.js';
+import {readKeyFile} from '../lib/authority.js';
 import {readFileSync} from 'node:fs';
 import {writeFileSync, mkdirSync} from 'node:fs';
 
 const appPath = fileURLToPath(import.meta.url);
-const usage = `FARADAY Graph 0.95.0 — local MCP discovery, observation, contracts and setup
+const usage = `FARADAY Graph 0.96.0 — local MCP discovery, observation, contracts and setup
 
 Usage:
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
@@ -53,6 +56,9 @@ Usage:
   faraday pilot demo
   faraday pilot eval [--limit 100] [--out FILE]
   faraday pilot verify --receipt FILE --public-key FILE
+  faraday approval sign --request FILE --approver NAME --private-key FILE --out FILE
+  faraday approval verify --request FILE --bundle FILE --keys FILE [--quorum 2]
+  faraday sentinel status|verify|stop|resume --db PATH
   faraday demo
   faraday security policy-template --server NAME [--json]
   faraday security audit [--root PATH] [--json]
@@ -71,7 +77,7 @@ function argsOf(args) {
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
     if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key'].includes(key)) throw new Error('Unknown option');
+    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -82,7 +88,33 @@ async function main() {
   const [cmd,...argv]=process.argv.slice(2);
   const flags=argsOf(argv);
   if (!cmd || cmd === 'help' || cmd === '--help') {process.stdout.write(usage);return;}
-  if(cmd==='pilot') {
+  if(cmd==='sentinel'){
+    if(!flags.db)throw Error('sentinel requires --db PATH of the running gateway');
+    const sentinel=new LocalSentinel(resolve(flags.db));
+    try{
+      if(flags._[0]==='stop')sentinel.stop(true);
+      else if(flags._[0]==='resume')sentinel.stop(false);
+      else if(flags._[0]!=='status'&&flags._[0]!=='verify')throw Error('Use sentinel status|verify|stop|resume');
+      const report=sentinel.status();
+      process.stdout.write(JSON.stringify(report,null,2)+'\n');
+      if(!report.chain.verified)process.exitCode=2;
+    }finally{sentinel.close();}
+  } else if(cmd==='approval'){
+    if(!flags.request)throw Error('Approval needs --request');
+    const request=JSON.parse(readFileSync(resolve(flags.request),'utf8'));
+    if(flags._[0]==='sign'){
+      if(!flags.approver||!flags['private-key']||!flags.out)throw Error('sign requires --approver, --private-key and --out');
+      const signed=signApproval({...request,approver:flags.approver,privatePem:readKeyFile(resolve(flags['private-key']),{privateKey:true})});
+      writeFileSync(resolve(flags.out),JSON.stringify(signed,null,2)+'\n',{mode:0o600,flag:'wx'});
+      process.stdout.write('Signed scoped approval and saved privately. Verify the request scope before signing.\n');
+    }else if(flags._[0]==='verify'){
+      if(!flags.bundle||!flags.keys)throw Error('verify requires --bundle and --keys');
+      const bundle=JSON.parse(readFileSync(resolve(flags.bundle),'utf8'));
+      const approverKeys=JSON.parse(readFileSync(resolve(flags.keys),'utf8'));
+      const result=verifyApprovals({bundle,approverKeys,...request,quorum:flags.quorum?Number(flags.quorum):2});
+      process.stdout.write(JSON.stringify(result,null,2)+'\n');
+    }else throw Error('Use approval sign or verify');
+  } else if(cmd==='pilot') {
     if(flags._[0]==='demo'){
       const result=await runPilotDemo();process.stdout.write(JSON.stringify(result,null,2)+'\n');
       if(!result.success)process.exitCode=2;
