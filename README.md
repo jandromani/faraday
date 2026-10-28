@@ -1,5 +1,22 @@
 # FARADAY — Trust Fabric
 
+## Build 002 — Asymmetric authority and authenticated agent proof (implemented)
+
+Build 002 adds **Ed25519** capability signing (private key in a separate issuer, public key in the Gate), a signed agent intent and execution proof bound to the capability fingerprint, pinned agent public keys, anti-replay checks and a loopback-only separate issuer process for development.
+
+**Verified:** 19 new adversarial security tests, plus the six Build 001 tests; GitHub Actions covers Python 3.11–3.13 and the interprocess demo.
+
+```bash
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
+python scripts/demo_v2.py
+```
+
+Read the [Build 002 security model and limitations](docs/BUILD002.md). **This does not yet prevent bypasses via direct API calls, provide independent SPIFFE identity attestation, or execute real tools.** The next milestone is Build 003: mandatory MCP enforcement with network-isolated backends and verified execution receipts.
+
+---
+
+
 > Intelligence proposes. Authority executes.
 
 FARADAY is a zero-trust security fabric for autonomous AI agents. The **Authority Boundary** keeps permission to execute outside the LLM.
