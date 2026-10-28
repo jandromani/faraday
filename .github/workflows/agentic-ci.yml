@@ -30,6 +30,15 @@ jobs:
         run: |
           node bin/faraday.js pilot eval --limit 100 --out /tmp/faraday-v095-pilot-evals.json
           node -e "const r=require('/tmp/faraday-v095-pilot-evals.json');if(r.summary.total!==100||r.summary.passed!==100||r.summary.failed!==0)process.exit(1)"
+      - name: Verify safe offline replay and read-only recovery inspector
+        working-directory: agentic
+        run: |
+          npm run timemachine:smoke
+          npm run benchmark:smoke
+      - name: Generate offline SPDX bill of materials
+        working-directory: agentic
+        run: |
+          node scripts/release-audit.mjs /tmp/faraday-${{ matrix.node-version }}-spdx.json
       - name: Export static compatibility and synthetic lab artifacts
         working-directory: agentic
         run: |
@@ -50,6 +59,7 @@ jobs:
             /tmp/faraday-v09-authority-evals.json
             /tmp/faraday-v09-compat.json
             /tmp/faraday-v095-pilot-evals.json
+            /tmp/faraday-${{ matrix.node-version }}-spdx.json
           retention-days: 14
 
   network-isolation:
