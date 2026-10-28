@@ -4,6 +4,7 @@ services:
   backend:
     image: node:22.16-alpine
     working_dir: /app
+    user: "${FARADAY_HOST_UID:?must_set}:${FARADAY_HOST_GID:?must_set}"
     command: ["node", "bin/faraday-lab-backend.js"]
     environment:
       FARADAY_BACKEND_SECRET_FILE: /run/faraday/backend-secret
@@ -16,6 +17,7 @@ services:
   gateway:
     image: node:22.16-alpine
     working_dir: /app
+    user: "${FARADAY_HOST_UID:?must_set}:${FARADAY_HOST_GID:?must_set}"
     command: ["node", "bin/faraday-authority-gateway.js"]
     environment:
       FARADAY_AUTHORITY_CONFIG: /run/faraday/gateway.json
@@ -29,6 +31,7 @@ services:
   dummy-agent:
     image: node:22.16-alpine
     working_dir: /app
+    user: "${FARADAY_HOST_UID:?must_set}:${FARADAY_HOST_GID:?must_set}"
     command: ["node", "scripts/docker-authority-client.mjs"]
     volumes:
       - ${FARADAY_APP_DIR:?must_set}:/app:ro
