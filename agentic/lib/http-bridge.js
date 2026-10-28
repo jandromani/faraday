@@ -7,6 +7,8 @@ import { GraphStore } from './store.js';
 import { McpObserver } from './observe.js';
 import { configServers, readMcpConfig, safeLabel } from './discover.js';
 import { resolve } from 'node:path';
+import { validatedMcpUrl, secureMcpFetch } from './egress-guard.js';
+import { denialReply,loadToolPolicy } from './security-policy.js';
 
 const MAX_FRAME = 2 * 1024 * 1024;
 const MAX_SSE_EVENT = MAX_FRAME;
@@ -16,17 +18,8 @@ const CLIENT_HEADER_DENY = new Set([
   'origin','forwarded','x-forwarded-for','x-forwarded-host','x-forwarded-proto',
 ]);
 
-function requiredUrl(text) {
-  if (typeof text !== 'string' || !text || text.length > 4096) throw Error('Missing or oversized configured MCP URL');
-  let url;
-  try { url = new URL(text); } catch { throw Error('Invalid MCP URL'); }
-  const local = ['127.0.0.1','::1','[::1]','localhost'].includes(url.hostname.toLowerCase());
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) {
-    throw Error('Only HTTPS remote MCP endpoints or loopback HTTP endpoints are permitted');
-  }
-  if (url.username || url.password || url.hash) throw Error('MCP endpoint must not include URL credentials or fragment');
-  return url.href;
-}
+function requiredUrl(text) { return validatedMcpUrl(text).href; }
+
 export function configuredHttpServer(configPath, name) {
   if (!configPath || !name) throw Error('HTTP bridge needs --config and --server');
   const matched = configServers(readMcpConfig(resolve(configPath))).filter(x => x.name === name);
@@ -132,7 +125,7 @@ async function* sseData(body) {
 
 /** Relay configured outbound MCP calls into stdin/stdout JSON-RPC streams. */
 export class HttpBridge {
-  constructor({server, db, emit, fetcher=fetch, timeoutMs=60000}) {
+  constructor({server, db, emit, fetcher=secureMcpFetch, timeoutMs=60000, policy=null}) {
     if (!server || typeof server.url !== 'string') throw Error('Invalid HTTP MCP configuration');
     this.server = server;
     this.store = new GraphStore(db);
@@ -140,6 +133,7 @@ export class HttpBridge {
     this.emit = emit;
     this.fetcher = fetcher;
     this.timeoutMs = timeoutMs;
+    this.policy = policy;
     this.sessionId = null;
     this.protocolVersion = null;
     this.pending = new Set();
@@ -153,6 +147,12 @@ export class HttpBridge {
     try { message=JSON.parse(raw);validateMessage(message); }
     catch { return; }
     this.observer.consume(raw,'client_to_server');
+    if(this.policy && !this.policy.decision(message).allowed){
+      const denied=denialReply(message);
+      if(denied){this.observer.consume(denied.trim(),'server_to_client');this.emit(denied);}
+      return;
+    }
+    if(this.pending.size>=64){this._error(message);return;}
     if (message.method === 'initialize') {
       const p=this._send(message);
       this.initialization=p.catch(()=>{});
@@ -191,14 +191,14 @@ export class HttpBridge {
         method:'POST',headers,body:JSON.stringify(message),redirect:'manual',signal:abort.signal,
       });
       // No redirect following: prevents secret exfiltration through redirects.
-      if (response.status>=300 && response.status<400) throw Error('Upstream redirect rejected');
+      if (response.status>=300 && response.status<400){if(response.discard)await response.discard();throw Error('Upstream redirect rejected');}
       const session=response.headers.get('mcp-session-id');
       if (session && /^[\x21-\x7e]{1,256}$/.test(session)) this.sessionId=session;
       if (message.method === 'initialize' && response.ok) {
         this.protocolVersion=message.params?._meta?.['io.modelcontextprotocol/protocolVersion'] || message.params?.protocolVersion || null;
       }
       if (response.status===202 && !Object.hasOwn(message,'id')) return;
-      if (!response.ok) throw Error('Upstream HTTP error');
+      if (!response.ok){if(response.discard)await response.discard();throw Error('Upstream HTTP error');}
       const contentType=(response.headers.get('content-type')||'').toLowerCase();
       if (contentType.includes('text/event-stream')) {
         for await (const frame of sseData(response.body)) this._emitRPC(frame);
@@ -216,9 +216,10 @@ export class HttpBridge {
   }
 }
 
-export async function bridgeMcp({configFile,server,database}) {
+export async function bridgeMcp({configFile,server,database,policyFile}) {
   const config=configuredHttpServer(configFile,server);
-  const bridge=new HttpBridge({server:config,db:database,emit:raw=>process.stdout.write(raw)});
+  const policy=loadToolPolicy(policyFile,server);
+  const bridge=new HttpBridge({server:config,db:database,policy,emit:raw=>process.stdout.write(raw)});
   const input=createInterface({input:process.stdin,crlfDelay:Infinity});
   const work=[];
   for await (const line of input) {
