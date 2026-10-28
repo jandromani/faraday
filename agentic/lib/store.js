@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, chmodSync, existsSync } from 'node:fs';
+import { mkdirSync, chmodSync, existsSync, lstatSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { safeLabel } from './discover.js';
 import { normalizeSchema, digest, canonical } from './contracts.js';
@@ -13,7 +13,10 @@ export class GraphStore {
   constructor(path) {
     this.path = resolve(path);
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
+    if(existsSync(this.path) && (!lstatSync(this.path).isFile() || lstatSync(this.path).isSymbolicLink()))
+      throw Error('Unsafe graph database path: refusing symlink or non-file');
     this.db = new DatabaseSync(this.path, { timeout: 5000 });
+    if(process.platform !== 'win32') chmodSync(this.path,0o600);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS nodes (
         id TEXT PRIMARY KEY, type TEXT NOT NULL, label TEXT NOT NULL,
