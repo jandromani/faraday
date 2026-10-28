@@ -12,13 +12,14 @@ import { doctor, initialize } from '../lib/setup.js';
 import { compareSnapshots, readSnapshot, snapshotFromStore, saveSnapshot, generateRegressionTests } from '../lib/contracts.js';
 import { fetchFreeModels, explainFree, graphFromDatabase, makeContractAdvisoryData } from '../lib/ai-free.js';
 import {auditWorkspace} from '../lib/security-audit.js';
-import {DUMMY_AGENTS,runLab,labConfig} from '../lib/lab.js';
-import {diffAuthority,readPolicy,affectedClients} from '../lib/trust-diff.js';
+import {DUMMY_AGENTS, DISTRIBUTION, runLab, labConfig} from '../lib/lab.js';
+import {diffAuthority, readPolicy, affectedClients} from '../lib/trust-diff.js';
 import {compatibilityReport} from '../lib/compatibility.js';
-import {writeFileSync,mkdirSync} from 'node:fs';
+import {runAuthorityDemo,runAuthorityEvaluations} from '../lib/authority-demo.js';
+import {writeFileSync, mkdirSync} from 'node:fs';
 
 const appPath = fileURLToPath(import.meta.url);
-const usage = `FARADAY Graph 0.8.0 — local MCP discovery, observation, contracts and setup
+const usage = `FARADAY Graph 0.9.0 — local MCP discovery, observation, contracts and setup
 
 Usage:
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
@@ -38,14 +39,16 @@ Usage:
   faraday ai models
   faraday ai graph [--db PATH] [--send-metadata] [--model FREE_MODEL]
   faraday ai contracts --base FILE --current FILE [--send-metadata] [--model FREE_MODEL]
-  faraday security audit [--root PATH]
-  faraday security policy-template --server NAME
-  faraday lab agents
+  faraday lab agents [--json]
   faraday lab run [--seed 42] [--limit 1000] [--out FILE] [--fail-on-gap]
   faraday lab fixture --out DIR
-  faraday compat [--root PATH] [--include-global]
+  faraday compat [--root PATH] [--include-global] [--json]
   faraday trust diff --base POLICY --current POLICY [--db PATH] [--fail-on-expansion]
+  faraday authority demo # synthetic end-to-end gateway authorization
+  faraday authority eval [--limit 100] [--out FILE]
   faraday demo
+  faraday security policy-template --server NAME [--json]
+  faraday security audit [--root PATH] [--json]
 
 Only 'proxy' launches a local MCP server. 'bridge' connects to a pinned
 HTTPS or loopback Streamable HTTP endpoint. 'install' rewrites the selected
@@ -72,18 +75,29 @@ async function main() {
   const [cmd,...argv]=process.argv.slice(2);
   const flags=argsOf(argv);
   if (!cmd || cmd === 'help' || cmd === '--help') {process.stdout.write(usage);return;}
-  if(cmd==='lab') {
+  if(cmd==='authority') {
     const action=flags._[0];
-    if(action==='agents') {
-      process.stdout.write(JSON.stringify({kind:'synthetic-offline',agents:DUMMY_AGENTS},null,2)+'\n');
-    } else if(action==='fixture') {
+    if(action==='demo'){
+      const report=await runAuthorityDemo();
+      process.stdout.write(JSON.stringify(report,null,2)+'\n');
+      if(!report.success)process.exitCode=2;
+    } else if(action==='eval'){
+      const report=runAuthorityEvaluations({count:flags.limit===undefined?100:Number(flags.limit)});
+      if(flags.out)writeFileSync(resolve(flags.out),JSON.stringify(report,null,2)+'\n',{flag:'wx',mode:0o600});
+      process.stdout.write(JSON.stringify({format:report.format,version:report.version,summary:report.summary},null,2)+'\n');
+      if(report.summary.failed)process.exitCode=2;
+    } else throw Error('Use authority demo or authority eval');
+  } else if(cmd==='lab') {
+    const action=flags._[0];
+    if(action==='fixture') {
       if(!flags.out)throw Error('lab fixture requires --out directory');
-      const dir=resolve(flags.out);
-      mkdirSync(dir,{recursive:true,mode:0o700});
+      const dir=resolve(flags.out);mkdirSync(dir,{recursive:true,mode:0o700});
       const conf=labConfig({serverScript:resolve(dirname(appPath),'faraday-lab-server.js')});
       writeFileSync(join(dir,'mcp.json'),JSON.stringify(conf,null,2)+'\n',{mode:0o600,flag:'wx'});
       writeFileSync(join(dir,'agents.json'),JSON.stringify(DUMMY_AGENTS,null,2)+'\n',{mode:0o600,flag:'wx'});
       process.stdout.write(JSON.stringify({kind:'synthetic',config:join(dir,'mcp.json'),agents:DUMMY_AGENTS.length},null,2)+'\n');
+    } else if(action==='agents') {
+      process.stdout.write(JSON.stringify({kind:'synthetic-offline',agents:DUMMY_AGENTS},null,2)+'\n');
     } else if(action==='run') {
       const seed=flags.seed===undefined?42:Number(flags.seed),limit=flags.limit===undefined?1000:Number(flags.limit);
       const report=runLab({seed,limit,includeCases:!!flags.out});
@@ -92,16 +106,16 @@ async function main() {
         if(!target.endsWith('.json'))throw Error('Lab output must be a JSON file');
         writeFileSync(target,JSON.stringify(report,null,2)+'\n',{encoding:'utf8',mode:0o600,flag:'wx'});
       }
-      process.stdout.write(JSON.stringify(flags.out?{...report,cases:undefined}:report,null,2)+'\n');
-      if(report.summary.failed||(flags['fail-on-gap']&&report.summary.gaps))process.exitCode=2;
-    } else throw Error('Use lab agents, lab fixture or lab run');
+      const output=flags.out?{...report,cases:undefined}:report;
+      process.stdout.write(JSON.stringify(output,null,2)+'\n');
+      if(report.summary.failed || (flags['fail-on-gap']&&report.summary.gaps))process.exitCode=2;
+    } else throw Error('Use lab agents or lab run');
   } else if(cmd==='compat') {
     process.stdout.write(JSON.stringify(compatibilityReport({root:flags.root,includeGlobal:!!flags['include-global']}),null,2)+'\n');
   } else if(cmd==='trust') {
     if(flags._[0]!=='diff'||!flags.base||!flags.current)throw Error('Use trust diff --base --current');
     const report=diffAuthority(readPolicy(flags.base),readPolicy(flags.current));
-    if(flags.db){
-      const store=new GraphStore(fileDB(flags));
+    if(flags.db){const store=new GraphStore(fileDB(flags));
       try { const graph=store.snapshot();report.added=report.added.map(e=>({...e,potentialClients:affectedClients(graph,e.server)})); }
       finally{store.close();}
     }
@@ -202,7 +216,7 @@ async function main() {
       args:[appPath,found.transport==='http'?'bridge':'proxy','--config',resolve(flags.config),'--server',flags.server,'--db',fileDB(flags),...(flags.policy?['--policy',resolve(flags.policy)]:[])]
     },null,2)+'\n');
   } else if (cmd==='install') {
-    const out=installProxy({configFile:flags.config,server:flags.server,db:fileDB(flags),binPath:appPath,nodePath:process.execPath,dryRun:!!flags['dry-run']});
+    const out=installProxy({configFile:flags.config,server:flags.server,db:fileDB(flags),binPath:appPath,nodePath:process.execPath,dryRun:!!flags['dry-run'],policyFile:flags.policy});
     process.stdout.write((flags['dry-run']?'Plan only':'Installed')+` FARADAY ${out.transport} adapter for ${out.server} (uninstall is available).\n`);
   } else if (cmd==='uninstall') {
     const out=uninstallProxy({configFile:flags.config,server:flags.server});

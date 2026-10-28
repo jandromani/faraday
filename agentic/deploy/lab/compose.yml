@@ -1,0 +1,45 @@
+# Disposable synthetic network-isolation test. No published host ports or production secrets.
+name: faraday-v09-lab
+services:
+  backend:
+    image: node:22.16-alpine
+    working_dir: /app
+    command: ["node", "bin/faraday-lab-backend.js"]
+    environment:
+      FARADAY_BACKEND_SECRET_FILE: /run/faraday/backend-secret
+    volumes:
+      - ${FARADAY_APP_DIR:?must_set}:/app:ro
+      - ${FARADAY_LAB_DIR:?must_set}/gateway/backend-secret:/run/faraday/backend-secret:ro
+    networks: [backend_private]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+  gateway:
+    image: node:22.16-alpine
+    working_dir: /app
+    command: ["node", "bin/faraday-authority-gateway.js"]
+    environment:
+      FARADAY_AUTHORITY_CONFIG: /run/faraday/gateway.json
+    volumes:
+      - ${FARADAY_APP_DIR:?must_set}:/app:ro
+      - ${FARADAY_LAB_DIR:?must_set}/gateway:/run/faraday:ro
+    networks: [agent_zone,backend_private]
+    depends_on: [backend]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+  dummy-agent:
+    image: node:22.16-alpine
+    working_dir: /app
+    command: ["node", "scripts/docker-authority-client.mjs"]
+    volumes:
+      - ${FARADAY_APP_DIR:?must_set}:/app:ro
+      - ${FARADAY_LAB_DIR:?must_set}/agent/request.json:/run/agent/request.json:ro
+    networks: [agent_zone]
+    depends_on: [gateway]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+networks:
+  agent_zone:
+    driver: bridge
+  backend_private:
+    driver: bridge
+    internal: true

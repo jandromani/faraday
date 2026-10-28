@@ -22,26 +22,41 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - name: Run Graph, Shield, Contracts, TrustDiff and Lab tests
+      - name: Test Graph, v0.9 authority, contracts, synthetic lab and package
         working-directory: agentic
         run: npm run test:all
-      - name: Verify v0.8 synthetic lab and static MCP compatibility
+      - name: Export static compatibility and synthetic lab artifacts
         working-directory: agentic
         run: |
-          node bin/faraday.js compat --root . > /tmp/faraday-v08-compat.json
-          node bin/faraday.js lab fixture --out /tmp/faraday-v08-fixture
-          node bin/faraday.js lab run --seed 42 --out /tmp/faraday-v08-evals.json > /tmp/faraday-v08-summary.json
-          node -e "const r=require('/tmp/faraday-v08-evals.json');if(r.summary.total!==1000||r.summary.failed!==0||r.summary.gaps!==350)process.exit(1)"
-      - name: Upload synthetic evaluation evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: faraday-v08-node-${{ matrix.node-version }}
-          path: |
-            /tmp/faraday-v08-evals.json
-            /tmp/faraday-v08-compat.json
-          retention-days: 14
-      - name: Validate CLI contracts snapshot and diff
-        working-directory: agentic
-        run: |
+          node bin/faraday.js authority eval --limit 100 --out /tmp/faraday-v09-authority-evals.json > /tmp/faraday-v09-authority-summary.json
+          node -e "const r=require('/tmp/faraday-v09-authority-evals.json');if(r.summary.total!==100||r.summary.passed!==100||r.summary.failed!==0)process.exit(1)"
+          node bin/faraday.js compat --root . > /tmp/faraday-v09-compat.json
+          node bin/faraday.js lab fixture --out /tmp/faraday-v09-fixture
+          node bin/faraday.js lab run --seed 42 --out /tmp/faraday-v09-evals.json > /tmp/faraday-v09-summary.json
+          node -e "const r=require('/tmp/faraday-v09-evals.json');if(r.summary.total!==1000||r.summary.failed!==0||r.summary.gaps!==350)process.exit(1)"
           node bin/faraday.js contracts snapshot --db .faraday/graph.sqlite --out /tmp/faraday-current.json
           node bin/faraday.js contracts compare --base /tmp/faraday-current.json --current /tmp/faraday-current.json --fail-on-breaking
+      - name: Publish synthetic evaluation report as CI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: faraday-v09-evals-node-${{ matrix.node-version }}
+          path: |
+            /tmp/faraday-v09-evals.json
+            /tmp/faraday-v09-authority-evals.json
+            /tmp/faraday-v09-compat.json
+          retention-days: 14
+
+  network-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify Docker and Compose versions
+        run: |
+          docker --version
+          docker compose version
+      - name: Demonstrate isolated dummy-agent network and authority flow
+        working-directory: agentic
+        run: npm run lab:docker

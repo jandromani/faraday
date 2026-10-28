@@ -1,39 +1,43 @@
-# FARADAY Graph — plug & use for MCP systems
+# FARADAY Graph — v0.9 Authority Preview
 
-**Build 008: Developer Preview (Graph, Contracts, adapter, TrustDiff and synthetic Lab)** — discovery, runtime observation, structural contracts, impact analysis, local packaging and reversible installation.
+**Build 009:** opt-in cryptographic authorization for synthetic actions, backed by the existing v0.8 Graph, Contracts, Shield and offline Lab.
+
+## Authority Preview quickstart
+
+```bash
+cd agentic
+npm test                      # Graph + Authority unit and integration tests
+npm run authority             # signed capability -> authenticated gateway -> synthetic tool
+faraday authority eval --limit 100 --out authority-report.json
+npm run lab:docker             # Docker required: agent has no direct network route to synthetic tool backend
+```
+
+**Scope:** the new `/execute` authority gateway is a synthetic HTTP API, NOT a generic MCP/OAuth 2.1 resource server; it must not handle real payments or production tools. Node.js 22.16+ is required. Signed agent keys are demo credentials, **not workload attestation**.
+
+The [Authority Preview architecture, threat model and limitations](docs/V09_AUTHORITY_PREVIEW.md) explain exact guarantees, the Docker no-bypass proof and future requirements. No real inference API calls are needed.
+
+---
+
+
+**Build 007: Free-first AI Advisory (Iterations 1–4 + HTTP bridge + optional free-model analysis)** — discovery, runtime observation, structural contracts, impact analysis, local packaging and reversible installation.
 
 > See what your MCP agents depend on, observe what they invoke, detect breaking tool contract changes, and introduce FARADAY without changing your prompts or orchestration code.
 
 **Status:** local, offline-first development tool. **Not** a mandatory security gateway, code semantic indexer, real agent identity provider, or proof of zero-bypass execution. It is not yet published to npm. No claims of production certification or universal compatibility.
 
-## Build 008 — Developer Preview (v0.8.0)
+## FARADAY Shield — Build 007 (new)
 
-v0.8 introduces **TrustDiff** (compare tool allowlists), a static **compatibility inventory**, a real synthetic **stdio MCP fixture with 12 dummy tools**, and a **1,000-scenario deterministic offline evaluation corpus**. No production system is contacted by the lab. See [v0.8 scope](docs/V08_SCOPE.md) and [compatibility matrix](docs/COMPATIBILITY.md).
-
-```bash
-faraday lab agents
-faraday lab fixture --out ./lab-fixture
-faraday lab run --seed 42 --out ./v08-report.json
-faraday lab run --fail-on-gap
-faraday compat --root .
-faraday trust diff --base before-policy.json --current after-policy.json --fail-on-expansion
-```
-
-**Expected lab result (seed 42):** 650 deterministic rule assertions pass, 0 fail, 350 explicitly unsupported checks for prompt injection, authenticated agent identity and chaos recovery. These 1,000 cases are NOT independent penetration tests or security certification. `--fail-on-gap` intentionally returns exit code 2. Compatibility with third-party client versions still needs live testing.
-
-## FARADAY Shield 0.7 — Opt-in enforcement and security hardening
-
-Shield adds a default-deny per-server tool allowlist, DNS-pinned HTTP egress validation against SSRF, bounded responses, local posture auditing, restricted SQLite permissions, and pseudonymized external AI metadata. The original discovery and observation modes remain available.
+This version adds **opt-in deny-by-default MCP tool enforcement**, DNS-pinned egress validation against SSRF, bounded HTTP responses, a local security posture audit, protected SQLite file permissions, and pseudonymization of metadata before any external AI request.
 
 ```bash
 faraday security audit --root .
 faraday security policy-template --server my-server > .faraday/shield.json
-# Edit allowedTools to list only explicitly approved tool names.
+# Edit .faraday/shield.json and allow only the tools you explicitly intend.
 faraday install --dry-run --config .mcp.json --server my-server --policy .faraday/shield.json
 faraday install --config .mcp.json --server my-server --policy .faraday/shield.json
 ```
 
-**No security product can guarantee 100% protection.** FARADAY does not yet prevent a compromised agent from bypassing the proxy and calling an API directly; it also does not provide workload attestation, resource-level authorization, or a process sandbox. Read the [threat model and documented limitations](SECURITY.md).
+**Important:** proxy coverage is not universal, and this is NOT a proven zero-bypass sandbox. See [SECURITY.md](SECURITY.md) for threat model, controls, and known limitations. The ordinary (no policy) proxy remains in observation mode for backward compatibility.
 
 ## Requirements
 
