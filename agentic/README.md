@@ -1,6 +1,6 @@
 # FARADAY Graph — plug & use for MCP systems
 
-**Build 005: Universal Adapter (Iterations 1–4 + HTTP bridge)** — discovery, runtime observation, structural contracts, impact analysis, local packaging and reversible installation.
+**Build 006: Free-first AI Advisory (Iterations 1–4 + HTTP bridge + optional free-model analysis)** — discovery, runtime observation, structural contracts, impact analysis, local packaging and reversible installation.
 
 > See what your MCP agents depend on, observe what they invoke, detect breaking tool contract changes, and introduce FARADAY without changing your prompts or orchestration code.
 
@@ -178,3 +178,32 @@ For Streamable HTTP sources (e.g. `type: "http"` and `url: "https://mcp.example/
 - ⚠️ This is observational integration, not a provably enforced zero-trust boundary. The existing tools execute normally and remain accessible through any uninstrumented routes.
 
 **Privacy:** URLs and bearer tokens from the configuration are not written to Graph. All credentials should remain private in project configs and private backups, not committed to version control. Even sanitized tool and property names may reveal information; protect `.faraday/`.
+
+## Build 006: FARADAY AI — free-first, explicit opt-in
+
+**FARADAY AI is optional and advisory only.** It can explain the local graph topology or a contract-diff report with an OpenRouter *zero-priced* text model. The core scanner, proxy, contract comparison, and dashboard still run fully offline, with no model API.
+
+```bash
+# List currently verified zero-priced text models (public OpenRouter catalog):
+faraday ai models
+
+# Inspect EXACT metadata before anything leaves your machine:
+faraday ai graph --db .faraday/graph.sqlite
+faraday ai contracts --base before.json --current after.json
+
+# The following is the only operation that transmits metadata externally.
+# Provide your key via your private environment / secret manager.
+# Never commit keys to Git or paste them into client-side code.
+export OPENROUTER_API_KEY=YOUR_PRIVATE_KEY_FROM_SECRET_MANAGER
+faraday ai graph --db .faraday/graph.sqlite --send-metadata
+faraday ai contracts --base before.json --current after.json --send-metadata
+
+# Optionally request a particular currently free variant:
+faraday ai graph --send-metadata --model google/gemma-4-31b-it:free
+```
+
+**Cost policy (default 0 EUR):** refuses anything other than `openrouter/free` or a `:free` text model with catalog-confirmed zero prompt/completion and other declared prices. The catalog is read immediately before the inference request. If the catalog is unavailable, model pricing changes, the selected model is no longer explicitly free, or the API key is missing, FARADAY fails closed. No paid fallback models, tools, web search, OpenAI paid inference, or Hugging Face pay-as-you-go are used. Provider pricing may change between catalog check and request; for stronger financial guarantees, additionally cap or disable provider-side billing. Free quotas and rate limits apply.
+
+**Privacy:** external transmission requires `--send-metadata`; offline preview is always available without a key. Only graph node/edge labels or normalized contract-diff metadata are eligible for the prompt. These labels may still reveal internal system names, so review the preview before consenting, especially for enterprise/customer systems. No raw tool arguments, tool responses, prompts, credentials, or source code are intentionally sent. LLM explanations are not proof of correctness or a security authorization decision.
+
+**Provider availability:** the connected BIWE service also has authenticated OpenAI, Hugging Face and Gemini providers, but API access does **not** imply free inference. They are deliberately not enabled in this strict zero-spend CLI until a verifiable, project-level zero-charge enforcement mechanism exists.
