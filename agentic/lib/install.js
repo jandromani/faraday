@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkS
 import { dirname, join, resolve } from 'node:path';
 import { configServers } from './discover.js';
 import { configuredHttpServer } from './http-bridge.js';
+import {loadToolPolicy} from './security-policy.js';
 
 const object = x => x && typeof x === 'object' && !Array.isArray(x);
 const safeFile = (path,data,mode=0o600) => {
@@ -27,7 +28,7 @@ function targetFile(configFile,server){
   const dir=join(dirname(p),'.faraday','targets');
   return {dir,file:join(dir,id+'.json')};
 }
-export function installProxy({configFile,server,db,binPath,nodePath,dryRun=false}) {
+export function installProxy({configFile,server,db,binPath,nodePath,dryRun=false,policyFile}) {
   if(!server||!configFile)throw Error('install requires --config and --server');
   const path=resolve(configFile);
   if(lstatSync(path).isSymbolicLink()) throw Error('Refusing symlinked MCP configuration');
@@ -46,6 +47,7 @@ export function installProxy({configFile,server,db,binPath,nodePath,dryRun=false
     throw Error('Legacy HTTP+SSE transport not supported');
   if(transport==='http') configuredHttpServer(path,server);
   const command=transport==='http'?'bridge':'proxy';
+  if(policyFile)loadToolPolicy(policyFile,server);
   const {dir,file}=targetFile(path,server);
   if(existsSync(file))throw Error('Already installed; use uninstall before reinstall');
   if(dryRun) return {server,config:path,transport,command,changed:false,dryRun:true};
@@ -61,7 +63,7 @@ export function installProxy({configFile,server,db,binPath,nodePath,dryRun=false
   // It is never committed or printed; owners should protect their local files.
   writeFileSync(file,JSON.stringify(source,null,2)+'\n',{encoding:'utf8',flag:'wx',mode:0o600});
   chmodSync(file,0o600);
-  const proxy={command:nodePath,args:[binPath,command,'--config',file,'--server',server,'--db',resolve(db)]};
+  const proxy={command:nodePath,args:[binPath,command,'--config',file,'--server',server,'--db',resolve(db),...(policyFile?['--policy',resolve(policyFile)]:[])]};
   try {
     json[key][server]=proxy;
     const mode=statSync(path).mode & 0o777;
