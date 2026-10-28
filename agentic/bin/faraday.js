@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { discover, readMcpConfig, configServers } from '../lib/discover.js';
 import { GraphStore, toMermaid } from '../lib/store.js';
@@ -12,9 +12,13 @@ import { doctor, initialize } from '../lib/setup.js';
 import { compareSnapshots, readSnapshot, snapshotFromStore, saveSnapshot, generateRegressionTests } from '../lib/contracts.js';
 import { fetchFreeModels, explainFree, graphFromDatabase, makeContractAdvisoryData } from '../lib/ai-free.js';
 import {auditWorkspace} from '../lib/security-audit.js';
+import {DUMMY_AGENTS,runLab,labConfig} from '../lib/lab.js';
+import {diffAuthority,readPolicy,affectedClients} from '../lib/trust-diff.js';
+import {compatibilityReport} from '../lib/compatibility.js';
+import {writeFileSync,mkdirSync} from 'node:fs';
 
 const appPath = fileURLToPath(import.meta.url);
-const usage = `FARADAY Graph 0.7.0 — local MCP discovery, observation, contracts and setup
+const usage = `FARADAY Graph 0.8.0 — local MCP discovery, observation, contracts and setup
 
 Usage:
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
@@ -36,6 +40,11 @@ Usage:
   faraday ai contracts --base FILE --current FILE [--send-metadata] [--model FREE_MODEL]
   faraday security audit [--root PATH]
   faraday security policy-template --server NAME
+  faraday lab agents
+  faraday lab run [--seed 42] [--limit 1000] [--out FILE] [--fail-on-gap]
+  faraday lab fixture --out DIR
+  faraday compat [--root PATH] [--include-global]
+  faraday trust diff --base POLICY --current POLICY [--db PATH] [--fail-on-expansion]
   faraday demo
 
 Only 'proxy' launches a local MCP server. 'bridge' connects to a pinned
@@ -51,8 +60,8 @@ function argsOf(args) {
     const t=args[i];
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
-    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port','out','base','current','model','policy'].includes(key)) throw new Error('Unknown option');
+    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion'].includes(key)) {out[key]=true;continue;}
+    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -63,7 +72,42 @@ async function main() {
   const [cmd,...argv]=process.argv.slice(2);
   const flags=argsOf(argv);
   if (!cmd || cmd === 'help' || cmd === '--help') {process.stdout.write(usage);return;}
-  if(cmd==='security') {
+  if(cmd==='lab') {
+    const action=flags._[0];
+    if(action==='agents') {
+      process.stdout.write(JSON.stringify({kind:'synthetic-offline',agents:DUMMY_AGENTS},null,2)+'\n');
+    } else if(action==='fixture') {
+      if(!flags.out)throw Error('lab fixture requires --out directory');
+      const dir=resolve(flags.out);
+      mkdirSync(dir,{recursive:true,mode:0o700});
+      const conf=labConfig({serverScript:resolve(dirname(appPath),'faraday-lab-server.js')});
+      writeFileSync(join(dir,'mcp.json'),JSON.stringify(conf,null,2)+'\n',{mode:0o600,flag:'wx'});
+      writeFileSync(join(dir,'agents.json'),JSON.stringify(DUMMY_AGENTS,null,2)+'\n',{mode:0o600,flag:'wx'});
+      process.stdout.write(JSON.stringify({kind:'synthetic',config:join(dir,'mcp.json'),agents:DUMMY_AGENTS.length},null,2)+'\n');
+    } else if(action==='run') {
+      const seed=flags.seed===undefined?42:Number(flags.seed),limit=flags.limit===undefined?1000:Number(flags.limit);
+      const report=runLab({seed,limit,includeCases:!!flags.out});
+      if(flags.out){
+        const target=resolve(flags.out);
+        if(!target.endsWith('.json'))throw Error('Lab output must be a JSON file');
+        writeFileSync(target,JSON.stringify(report,null,2)+'\n',{encoding:'utf8',mode:0o600,flag:'wx'});
+      }
+      process.stdout.write(JSON.stringify(flags.out?{...report,cases:undefined}:report,null,2)+'\n');
+      if(report.summary.failed||(flags['fail-on-gap']&&report.summary.gaps))process.exitCode=2;
+    } else throw Error('Use lab agents, lab fixture or lab run');
+  } else if(cmd==='compat') {
+    process.stdout.write(JSON.stringify(compatibilityReport({root:flags.root,includeGlobal:!!flags['include-global']}),null,2)+'\n');
+  } else if(cmd==='trust') {
+    if(flags._[0]!=='diff'||!flags.base||!flags.current)throw Error('Use trust diff --base --current');
+    const report=diffAuthority(readPolicy(flags.base),readPolicy(flags.current));
+    if(flags.db){
+      const store=new GraphStore(fileDB(flags));
+      try { const graph=store.snapshot();report.added=report.added.map(e=>({...e,potentialClients:affectedClients(graph,e.server)})); }
+      finally{store.close();}
+    }
+    process.stdout.write(JSON.stringify(report,null,2)+'\n');
+    if(flags['fail-on-expansion']&&report.summary.authorityExpanded)process.exitCode=2;
+  } else if(cmd==='security') {
     if(flags._[0]==='audit'){
       const report=auditWorkspace(flags.root||process.cwd());
       process.stdout.write(JSON.stringify(report,null,2)+'\n');
