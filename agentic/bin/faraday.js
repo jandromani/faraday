@@ -16,10 +16,14 @@ import {DUMMY_AGENTS, DISTRIBUTION, runLab, labConfig} from '../lib/lab.js';
 import {diffAuthority, readPolicy, affectedClients} from '../lib/trust-diff.js';
 import {compatibilityReport} from '../lib/compatibility.js';
 import {runAuthorityDemo,runAuthorityEvaluations} from '../lib/authority-demo.js';
+import {runPilotDemo} from '../lib/pilot-demo.js';
+import {runPilotEvaluations} from '../lib/pilot-evals.js';
+import {verifyReceipt} from '../lib/pilot-receipts.js';
+import {readFileSync} from 'node:fs';
 import {writeFileSync, mkdirSync} from 'node:fs';
 
 const appPath = fileURLToPath(import.meta.url);
-const usage = `FARADAY Graph 0.9.0 — local MCP discovery, observation, contracts and setup
+const usage = `FARADAY Graph 0.95.0 — local MCP discovery, observation, contracts and setup
 
 Usage:
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
@@ -46,6 +50,9 @@ Usage:
   faraday trust diff --base POLICY --current POLICY [--db PATH] [--fail-on-expansion]
   faraday authority demo # synthetic end-to-end gateway authorization
   faraday authority eval [--limit 100] [--out FILE]
+  faraday pilot demo
+  faraday pilot eval [--limit 100] [--out FILE]
+  faraday pilot verify --receipt FILE --public-key FILE
   faraday demo
   faraday security policy-template --server NAME [--json]
   faraday security audit [--root PATH] [--json]
@@ -64,7 +71,7 @@ function argsOf(args) {
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
     if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit'].includes(key)) throw new Error('Unknown option');
+    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -75,7 +82,22 @@ async function main() {
   const [cmd,...argv]=process.argv.slice(2);
   const flags=argsOf(argv);
   if (!cmd || cmd === 'help' || cmd === '--help') {process.stdout.write(usage);return;}
-  if(cmd==='authority') {
+  if(cmd==='pilot') {
+    if(flags._[0]==='demo'){
+      const result=await runPilotDemo();process.stdout.write(JSON.stringify(result,null,2)+'\n');
+      if(!result.success)process.exitCode=2;
+    }else if(flags._[0]==='eval'){
+      const report=await runPilotEvaluations({count:flags.limit===undefined?100:Number(flags.limit)});
+      if(flags.out)writeFileSync(resolve(flags.out),JSON.stringify(report,null,2)+'\n',{flag:'wx',mode:0o600});
+      process.stdout.write(JSON.stringify({format:report.format,version:report.version,summary:report.summary,gaps:report.gaps},null,2)+'\n');
+      if(report.summary.failed)process.exitCode=2;
+    }else if(flags._[0]==='verify'){
+      if(!flags.receipt||!flags['public-key'])throw Error('pilot verify requires --receipt and --public-key');
+      const receipt=JSON.parse(readFileSync(resolve(flags.receipt),'utf8'));
+      const result=verifyReceipt({receipt,publicPem:readFileSync(resolve(flags['public-key']),'utf8')});
+      process.stdout.write(JSON.stringify(result,null,2)+'\n');
+    }else throw Error('Use pilot demo or pilot verify');
+  } else if(cmd==='authority') {
     const action=flags._[0];
     if(action==='demo'){
       const report=await runAuthorityDemo();
