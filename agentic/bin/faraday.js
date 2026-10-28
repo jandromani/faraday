@@ -22,11 +22,14 @@ import {verifyReceipt} from '../lib/pilot-receipts.js';
 import {LocalSentinel} from '../lib/sentinel.js';
 import {signApproval,verifyApprovals} from '../lib/approvals.js';
 import {readKeyFile} from '../lib/authority.js';
+import {captureSynthetic,readSyntheticTrace,replaySynthetic,diffSynthetic,readReplayPolicy} from '../lib/timemachine.js';
+import {runBenchmarks} from '../lib/benchmarks.js';
+import {inspectRecovery} from '../lib/recovery-inspector.js';
 import {readFileSync} from 'node:fs';
 import {writeFileSync, mkdirSync} from 'node:fs';
 
 const appPath = fileURLToPath(import.meta.url);
-const usage = `FARADAY Graph 0.96.0 — local MCP discovery, observation, contracts and setup
+const usage = `FARADAY Graph 0.97.0 — local MCP discovery, observation, contracts and setup
 
 Usage:
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
@@ -59,6 +62,11 @@ Usage:
   faraday approval sign --request FILE --approver NAME --private-key FILE --out FILE
   faraday approval verify --request FILE --bundle FILE --keys FILE [--quorum 2]
   faraday sentinel status|verify|stop|resume --db PATH
+  faraday timemachine capture [--seed 42] [--out FILE]
+  faraday timemachine replay --trace FILE [--policy FILE] [--fail-on-divergence]
+  faraday timemachine diff --base FILE --current FILE
+  faraday benchmark [--iterations 200] [--out FILE]
+  faraday recovery inspect --db JOURNAL [--stale-ms 60000]
   faraday demo
   faraday security policy-template --server NAME [--json]
   faraday security audit [--root PATH] [--json]
@@ -76,8 +84,8 @@ function argsOf(args) {
     const t=args[i];
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
-    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum'].includes(key)) throw new Error('Unknown option');
+    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion','fail-on-divergence'].includes(key)) {out[key]=true;continue;}
+    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -88,7 +96,29 @@ async function main() {
   const [cmd,...argv]=process.argv.slice(2);
   const flags=argsOf(argv);
   if (!cmd || cmd === 'help' || cmd === '--help') {process.stdout.write(usage);return;}
-  if(cmd==='sentinel'){
+  if(cmd==='timemachine'){
+    const action=flags._[0];let report;
+    if(action==='capture'){
+      const seed=flags.seed===undefined?42:Number(flags.seed);
+      report=captureSynthetic({seed});
+    }else if(action==='replay'){
+      if(!flags.trace)throw Error('timemachine replay needs --trace');
+      report=replaySynthetic(readSyntheticTrace(resolve(flags.trace)),flags.policy?{policy:readReplayPolicy(resolve(flags.policy))}:{});
+      if(flags['fail-on-divergence']&&report.summary.divergences)process.exitCode=2;
+    }else if(action==='diff'){
+      if(!flags.base||!flags.current)throw Error('timemachine diff needs --base and --current');
+      report=diffSynthetic(readSyntheticTrace(resolve(flags.base)),readSyntheticTrace(resolve(flags.current)));
+    }else throw Error('Use timemachine capture|replay|diff');
+    if(flags.out)writeFileSync(resolve(flags.out),JSON.stringify(report,null,2)+'\n',{mode:0o600,flag:'wx'});
+    process.stdout.write(JSON.stringify(action==='capture'?{format:report.format,steps:report.steps.length,rootHash:report.rootHash,output:flags.out||null}:report,null,2)+'\n');
+  } else if(cmd==='benchmark'){
+    const report=runBenchmarks({iterations:flags.iterations===undefined?200:Number(flags.iterations)});
+    if(flags.out)writeFileSync(resolve(flags.out),JSON.stringify(report,null,2)+'\n',{mode:0o600,flag:'wx'});
+    process.stdout.write(JSON.stringify(report,null,2)+'\n');
+  } else if(cmd==='recovery'){
+    if(flags._[0]!=='inspect'||!flags.db)throw Error('recovery inspect requires --db JOURNAL');
+    process.stdout.write(JSON.stringify(inspectRecovery({path:resolve(flags.db),staleAfterMs:flags['stale-ms']===undefined?60000:Number(flags['stale-ms'])}),null,2)+'\n');
+  } else if(cmd==='sentinel'){
     if(!flags.db)throw Error('sentinel requires --db PATH of the running gateway');
     const sentinel=new LocalSentinel(resolve(flags.db));
     try{

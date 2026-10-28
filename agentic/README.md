@@ -1,22 +1,63 @@
-# FARADAY Graph — v0.9 Authority Preview
+# FARADAY Graph — v0.95 Secure Pilot
 
-**Build 009:** opt-in cryptographic authorization for synthetic actions, backed by the existing v0.8 Graph, Contracts, Shield and offline Lab.
+**Build 0095:** protected MCP JSON-RPC tool calls, durable synthetic backend idempotency,
+crash-recovery journal and independently verifiable gateway-signed Ed25519 receipts.
+Everything operates on *fake invoice tools only*; no payments or external tools execute.
 
-## v0.96 — Signed Approvals, Sentinel and Adversarial Testing
+## v0.97 — TimeMachine, Recovery Inspector and Local Benchmarks
 
-The synthetic Secure Pilot now optionally requires **two independent Ed25519 approvals** bound to the exact capability and arguments. A persistent **Sentinel** provides emergency stop, temporary quarantine and a local hash-linked (not tamper-proof) incident log; **Budget** enforces per-agent action limits in SQLite.
+Offline **synthetic** trace replay only: no real tools are executed. Deterministic 12-actor fixture, hash-chain integrity checks (NOT signatures), alternative-policy impact comparison, read-only inspection of uncertain/stale SQLite journal operations and local microbenchmarks (not a performance SLA).
 
 ```bash
+faraday timemachine capture --seed 42 --out synthetic-trace.json
+faraday timemachine replay --trace synthetic-trace.json --fail-on-divergence
+faraday timemachine replay --trace synthetic-trace.json --policy tighter-policy.json
+faraday timemachine diff --base baseline.json --current changed.json
+faraday recovery inspect --db /path/to/pilot-journal.sqlite --stale-ms 60000
+faraday benchmark --iterations 200 --out local-measurements.json
+```
+
+Read [v0.97 technical limitations and safety guarantees](docs/V097_TIMEMACHINE_RECOVERY.md). Replay never invokes an MCP tool and cannot reproduce production agent behavior. A SHA-256 chain is not proof of provenance or immutable storage. The release remains a private developer preview.
+
+## v0.96 — Operator Controls and Adversarial Tests
+
+Secure Pilot now optionally requires **two independent signed offline approvals** for an MCP tool execution, bound to its exact capability, arguments, resource and expiry. A new **Sentinel** offers local emergency stop, temporary quarantine and a hash-linked (not tamper-proof) event log; **Budget** enforces a per-agent call quota in single-node SQLite. The synthetic Docker fixture enables both two-person approval and these controls.
+
+```bash
+# Experimental synthetic example; this does NOT modify arbitrary MCP tools
 npm run test:all
 npm run security:fuzz
-npm run pilot:docker
+npm run pilot:docker       # Docker required, checks approvals and bypass
 faraday sentinel status --db /absolute/path/to/pilot/gateway-state/sentinel.sqlite
 faraday sentinel stop --db /absolute/path/to/pilot/gateway-state/sentinel.sqlite
 faraday sentinel resume --db /absolute/path/to/pilot/gateway-state/sentinel.sqlite
 ```
 
-These are **pilot-only security controls**; they do not close the enterprise E17/E18/E19/E26 epics. Approval identities are generated for synthetic operators, not verified corporate humans. See [Security Operations](docs/V096_SECURITY_OPERATIONS.md).
+See [v0.96 Operations and Security](docs/V096_SECURITY_OPERATIONS.md) for the approver CLI, threat model and exact limitations. **These are preview implementations, not enterprise-complete E17, E18, E19 or E26.**
 
+## v0.95 Quickstart
+
+```bash
+cd agentic
+npm test
+npm run pilot             # signed MCP call, valid receipt, replay denial
+npm run pilot:eval        # 100 real local JSON-RPC calls, synthetic only
+npm run pilot:docker      # Docker Compose network no-bypass demonstration
+faraday pilot verify --receipt receipt.json --public-key receipt.pub
+```
+
+**Limitations:** this is a deliberately limited MCP transport subset with a trusted
+agent proof header. It is **not** full MCP/OAuth compliance, attested workload
+identity, production signing-key custody, universal no-bypass, a general-purpose
+isolated executor or a verified real financial transaction. The signed receipt
+attests only the *gateway-observed* outcome. Read
+[the complete v0.95 threat model](docs/V095_SECURE_PILOT.md).
+
+---
+
+# FARADAY Graph — v0.9 Authority Preview
+
+**Build 009:** opt-in cryptographic authorization for synthetic actions, backed by the existing v0.8 Graph, Contracts, Shield and offline Lab.
 
 ## Authority Preview quickstart
 

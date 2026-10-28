@@ -1,8 +1,8 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.96.0",
+  "version": "0.97.0",
   "private": true,
-  "description": "FARADAY Secure Pilot: signed multi-party approvals, incident response, quotas and adversarial mutation tests",
+  "description": "FARADAY Secure Pilot plus offline synthetic TimeMachine and measured microbenchmarks",
   "type": "module",
   "bin": {
     "faraday": "./bin/faraday.js",
@@ -14,7 +14,7 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "smoke": "node bin/faraday.js demo",
-    "test:all": "npm test && npm run smoke && npm run lab && npm run authority && npm run authority:eval && npm run pilot && npm run pilot:eval && npm pack --dry-run",
+    "test:all": "npm test && npm run smoke && npm run lab && npm run authority && npm run authority:eval && npm run pilot && npm run pilot:eval && npm pack --dry-run && npm run release:audit && npm run timemachine:smoke && npm run benchmark:smoke",
     "lab": "node bin/faraday.js lab run",
     "lab:gate": "node bin/faraday.js lab run --fail-on-gap",
     "compat": "node bin/faraday.js compat --root .",
@@ -24,7 +24,10 @@
     "pilot": "node bin/faraday.js pilot demo",
     "pilot:docker": "sh scripts/docker-pilot-smoke.sh",
     "pilot:eval": "node bin/faraday.js pilot eval --limit 100",
-    "security:fuzz": "node --test tests/fuzz.test.js"
+    "security:fuzz": "node --test tests/fuzz.test.js",
+    "release:audit": "node scripts/release-audit.mjs",
+    "timemachine:smoke": "node scripts/timemachine-smoke.mjs",
+    "benchmark:smoke": "node bin/faraday.js benchmark --iterations 25"
   },
   "license": "Apache-2.0",
   "exports": {
@@ -46,7 +49,10 @@
     "./pilot-backend": "./lib/pilot-backend.js",
     "./approvals": "./lib/approvals.js",
     "./sentinel": "./lib/sentinel.js",
-    "./budget": "./lib/budget.js"
+    "./budget": "./lib/budget.js",
+    "./timemachine": "./lib/timemachine.js",
+    "./benchmarks": "./lib/benchmarks.js",
+    "./recovery-inspector": "./lib/recovery-inspector.js"
   },
   "files": [
     "bin",
