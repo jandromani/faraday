@@ -1,0 +1,143 @@
+{
+  "schema": "faraday-controls/v1",
+  "reference": "OWASP Agentic Top 10 for 2026",
+  "asOf": "2026-10-29",
+  "certified": false,
+  "mappings": [
+    {
+      "owaspRisk": "ASI01",
+      "risk": "Agent Goal Hijack",
+      "status": "partial",
+      "controlModules": [
+        "authority",
+        "pilot-mcp"
+      ],
+      "testEvidence": [
+        "tests/pilot.test.js"
+      ],
+      "residualRisk": "No comprehensive prompt-injection defense",
+      "independentValidation": false
+    },
+    {
+      "owaspRisk": "ASI02",
+      "risk": "Tool Misuse & Exploitation",
+      "status": "partial",
+      "controlModules": [
+        "security-policy",
+        "authority"
+      ],
+      "testEvidence": [
+        "tests/authority.test.js"
+      ],
+      "residualRisk": "Direct/unmediated tools may bypass the proxy",
+      "independentValidation": false
+    },
+    {
+      "owaspRisk": "ASI03",
+      "risk": "Identity & Privilege Abuse",
+      "status": "partial",
+      "controlModules": [
+        "authority",
+        "mcp-oauth-resource"
+      ],
+      "testEvidence": [
+        "tests/mcp-oauth-resource.test.js"
+      ],
+      "residualRisk": "No attested workload identity",
+      "independentValidation": false
+    },
+    {
+      "owaspRisk": "ASI04",
+      "risk": "Agentic Supply Chain Vulnerabilities",
+      "status": "partial",
+      "controlModules": [
+        "release-audit"
+      ],
+      "testEvidence": [
+        "tests/release-audit.test.js"
+      ],
+      "residualRisk": "No signed SLSA/provenance",
+      "independentValidation": false
+    },
+    {
+      "owaspRisk": "ASI05",
+      "risk": "Unexpected Code Execution",
+      "status": "partial",
+      "controlModules": [
+        "egress-guard",
+        "security-policy"
+      ],
+      "testEvidence": [
+        "tests/shield.test.js"
+      ],
+      "residualRisk": "No sandbox for arbitrary untrusted MCP programs",
+      "independentValidation": false
+    },
+    {
+      "owaspRisk": "ASI06",
+      "risk": "Memory & Context Poisoning",
+      "status": "partial",
+      "controlModules": [
+        "ai-free"
+      ],
+      "testEvidence": [
+        "tests/ai-free.test.js"
+      ],
+      "residualRisk": "No MemoryGuard integrity protection",
+      "independentValidation": false
+    },
+    {
+      "owaspRisk": "ASI07",
+      "risk": "Insecure Inter-Agent Communication",
+      "status": "partial",
+      "controlModules": [
+        "authority"
+      ],
+      "testEvidence": [
+        "tests/authority.test.js"
+      ],
+      "residualRisk": "No A2A cross-agent trust/delegation",
+      "independentValidation": false
+    },
+    {
+      "owaspRisk": "ASI08",
+      "risk": "Cascading Failures",
+      "status": "partial",
+      "controlModules": [
+        "recovery-inspector",
+        "budget"
+      ],
+      "testEvidence": [
+        "tests/recovery-inspector.test.js"
+      ],
+      "residualRisk": "No HA/failover",
+      "independentValidation": false
+    },
+    {
+      "owaspRisk": "ASI09",
+      "risk": "Human-Agent Trust Exploitation",
+      "status": "partial",
+      "controlModules": [
+        "approvals"
+      ],
+      "testEvidence": [
+        "tests/operator-controls.test.js"
+      ],
+      "residualRisk": "No authenticated human approval UX",
+      "independentValidation": false
+    },
+    {
+      "owaspRisk": "ASI10",
+      "risk": "Rogue Agents",
+      "status": "partial",
+      "controlModules": [
+        "sentinel"
+      ],
+      "testEvidence": [
+        "tests/operator-controls.test.js"
+      ],
+      "residualRisk": "No distributed kill-switch/revocation",
+      "independentValidation": false
+    }
+  ]
+}

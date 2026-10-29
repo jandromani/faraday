@@ -1,0 +1,10 @@
+{
+  "name": "@faraday/authority",
+  "version": "0.99.4",
+  "type": "module",
+  "private": true,
+  "description": "FARADAY authority migration boundary (private internal package)",
+  "exports": {
+    ".": "./index.js"
+  }
+}

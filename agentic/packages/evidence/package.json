@@ -1,0 +1,10 @@
+{
+  "name": "@faraday/evidence",
+  "version": "0.99.4",
+  "type": "module",
+  "private": true,
+  "description": "FARADAY evidence migration boundary (private internal package)",
+  "exports": {
+    ".": "./index.js"
+  }
+}
