@@ -11,4 +11,8 @@ export FARADAY_HOST_UID="$(id -u)"
 export FARADAY_HOST_GID="$(id -g)"
 docker compose -f deploy/pilot/compose.yml pull --quiet
 node scripts/prepare-pilot-lab.mjs "$LAB_DIR"
-docker compose -f deploy/pilot/compose.yml up --abort-on-container-exit --exit-code-from dummy-agent
+docker compose -f deploy/pilot/compose.yml config --format json > "$LAB_DIR/compose-effective.json"
+node scripts/check-pilot-deployment.mjs "$LAB_DIR/compose-effective.json"
+docker compose -f deploy/pilot/compose.yml up -d backend gateway
+docker compose -f deploy/pilot/compose.yml run --rm dummy-agent
+docker compose -f deploy/pilot/compose.yml run --rm rogue-agent

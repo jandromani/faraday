@@ -9,6 +9,7 @@ import {LocalBudget} from '../lib/budget.js';
 import {PinnedOAuthResource} from '../lib/mcp-oauth-resource.js';
 import {LocalOAuthRevocations} from '../lib/oauth-revocations.js';
 import {createStrictSecretFileProvider} from '../lib/secret-file-provider.js';
+import {createVaultKv2SecretProvider} from '../lib/vault-kv2-secret-provider.js';
 const cfg=JSON.parse(readFileSync(process.env.FARADAY_PILOT_CONFIG,'utf8'));
 const keys=Object.fromEntries(Object.entries(cfg.issuerKeys).map(([id,path])=>[id,readKeyFile(path)]));
 const registry=Object.fromEntries(Object.entries(cfg.agents).map(([id,path])=>[id,readKeyFile(path)]));
@@ -26,7 +27,7 @@ const oauthResource=cfg.oauthResource ? new PinnedOAuthResource({
   readScope:cfg.oauthResource.readScope,executeScope:cfg.oauthResource.executeScope,revocations
 }) : null;
 const server=createSecurePilotGateway({gate,backendUrl:cfg.backendUrl,
-  backendSecretProvider:createStrictSecretFileProvider(cfg.backendSecretFile),journal,
+  backendSecretProvider:cfg.vaultKv2BackendSecret?createVaultKv2SecretProvider(cfg.vaultKv2BackendSecret):createStrictSecretFileProvider(cfg.backendSecretFile),journal,
   receiptPrivatePem:readKeyFile(cfg.receiptPrivateFile,{privateKey:true}),backendPublicPem:readKeyFile(cfg.backendPublicFile),approvalConfig,sentinel,budget,oauthResource});
 server.listen(Number(process.env.PORT||8098),'0.0.0.0',()=>console.log('FARADAY v0.95 pilot gateway'));
 const stop=()=>server.close(()=>{ledger.close();journal.close();sentinel?.close();budget?.close();revocations?.close();process.exit(0);});

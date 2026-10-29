@@ -1,3 +1,17 @@
+## FARADAY v0.99.6 — Trust boundary / Vault adapter / rogue MCP server test
+
+The optional Vault KV v2 reader fetches a pinned secret from an explicitly configured Vault endpoint, using an operator-owned token **file** with strict permissions. Reads are fresh on each operation, fail closed and never log the token or credential. This is a **protocol adapter**, not complete Vault identity integration, lease renewal or a production secrets broker. HTTPS is required except for explicit loopback test fixtures. It is *not enabled* by default. See [pilot guide](docs/V0996_DEPLOYMENT_BOUNDARY.md).
+
+A Docker reference topology includes an **untrusted rogue-agent** without mounted credentials. Its live smoke tests attempt direct backend access and forged gateway tool execution. A deployment-contract check checks effective Docker Compose configuration for backend network isolation, denied secret mounts, dropped capabilities, read-only filesystems, resource limits and privilege restrictions. The proof is **only valid for that Docker topology**, not any arbitrary deployment or sandbox escape.
+
+```bash
+npm run boundary:test
+npm run pilot:docker  # requires Docker and Docker Compose
+npm run test:all
+```
+
+---
+
 ## FARADAY v0.99.5 — Local trust hardening
 
 - Persistent **opt-in OAuth revocation** for tokens, agents and OAuth clients. Every token must carry `jti` when configured; revocation denies the tool call before it reaches the backend.

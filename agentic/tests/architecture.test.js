@@ -15,10 +15,10 @@ test('Four migration API surfaces bind to real existing implementations',()=>{
 });
 test('All packages are private, individually versioned, and exposed without breaking historical exports',()=>{
   const main=JSON.parse(readFileSync(resolve(root,'package.json'),'utf8'));
-  assert.equal(main.private,true);assert.equal(main.version,'0.99.5');
+  assert.equal(main.private,true);assert.match(main.version,/^0\.99\.[0-9]+$/);
   for(const name of ['connect','authority','evidence','lab']){
     const pkg=JSON.parse(readFileSync(resolve(root,'packages',name,'package.json'),'utf8'));
-    assert.equal(pkg.name,'@faraday/'+name);assert.equal(pkg.version,'0.99.5');assert.equal(pkg.private,true);
+    assert.equal(pkg.name,'@faraday/'+name);assert.equal(pkg.version,main.version);assert.equal(pkg.private,true);
   }
   for(const key of ['./connect','./authority-suite','./evidence','./lab-suite','./gateway','./mcp-oauth-resource'])assert.ok(main.exports[key]);
 });
