@@ -162,9 +162,12 @@ export class HttpBridge {
     return this._track(p);
   }
   _track(p) { this.pending.add(p);p.finally(()=>this.pending.delete(p)).catch(()=>{});return p; }
-  _emitRPC(raw) {
+  _emitRPC(raw,request) {
     if (Buffer.byteLength(raw)>MAX_FRAME) throw Error('HTTP message too large');
     const obj=JSON.parse(raw);validateMessage(obj);
+    if(request.method==='initialize' && obj.id===request.id && !obj.error &&
+       typeof obj.result?.protocolVersion==='string' && /^20\d{2}-\d{2}-\d{2}$/.test(obj.result.protocolVersion))
+      this.protocolVersion=obj.result.protocolVersion;
     if(Array.isArray(obj.result?.tools)) for(const tool of obj.result.tools.slice(0,1000)) {
       if (typeof tool?.name==='string') this.toolHeaderDefs.set(tool.name,schemaMirrorPaths(tool.inputSchema));
     }
@@ -185,7 +188,7 @@ export class HttpBridge {
     try {
       const headers={...this.server.headers,'content-type':'application/json',
         'accept':'application/json, text/event-stream',...methodHeaders(message,this.toolHeaderDefs)};
-      if (this.protocolVersion && !headers['mcp-protocol-version']) headers['mcp-protocol-version']=this.protocolVersion;
+      if (this.protocolVersion && message.method!=='initialize') headers['mcp-protocol-version']=this.protocolVersion;
       if (this.sessionId) headers['mcp-session-id']=this.sessionId;
       const response=await this.fetcher(this.server.url,{
         method:'POST',headers,body:JSON.stringify(message),redirect:'manual',signal:abort.signal,
@@ -194,17 +197,14 @@ export class HttpBridge {
       if (response.status>=300 && response.status<400){if(response.discard)await response.discard();throw Error('Upstream redirect rejected');}
       const session=response.headers.get('mcp-session-id');
       if (session && /^[\x21-\x7e]{1,256}$/.test(session)) this.sessionId=session;
-      if (message.method === 'initialize' && response.ok) {
-        this.protocolVersion=message.params?._meta?.['io.modelcontextprotocol/protocolVersion'] || message.params?.protocolVersion || null;
-      }
       if (response.status===202 && !Object.hasOwn(message,'id')) return;
       if (!response.ok){if(response.discard)await response.discard();throw Error('Upstream HTTP error');}
       const contentType=(response.headers.get('content-type')||'').toLowerCase();
       if (contentType.includes('text/event-stream')) {
-        for await (const frame of sseData(response.body)) this._emitRPC(frame);
+        for await (const frame of sseData(response.body)) this._emitRPC(frame,message);
       } else if (contentType.includes('application/json')) {
         const raw=await response.text();
-        this._emitRPC(raw);
+        this._emitRPC(raw,message);
       } else throw Error('Unsupported upstream response type');
     } catch { this._error(message); }
     finally { clearTimeout(timeout); }

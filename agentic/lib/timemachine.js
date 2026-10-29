@@ -73,7 +73,9 @@ export function syntheticFixture(seed=42){
   return {policy,intents};
 }
 export function captureSynthetic({seed=42,policy,intents}={}){
-  const fixture=policy&&intents?{policy,intents}:syntheticFixture(seed);
+  if(!Number.isSafeInteger(seed)||seed<0||seed>0xffffffff)throw Error('Invalid synthetic seed');
+  if((policy===undefined)!==(intents===undefined))throw Error('Synthetic policy and intents must be provided together');
+  const fixture=policy===undefined?syntheticFixture(seed):{policy,intents};
   const computed=compute(fixture.policy,fixture.intents),steps=[];
   let prevHash='0'.repeat(64);
   for(const entry of computed.steps){
@@ -111,7 +113,7 @@ export function verifyTrace(trace){
 }
 export function replaySynthetic(trace,{policy}={}){
   const integrity=verifyTrace(trace);
-  const target=policy?validatePolicy(policy):trace.policy;
+  const target=policy===undefined?trace.policy:validatePolicy(policy);
   const simulated=compute(target,trace.steps.map(s=>s.intent));
   const divergences=[];
   for(const [i,step] of trace.steps.entries()){

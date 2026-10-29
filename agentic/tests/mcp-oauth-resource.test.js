@@ -84,8 +84,9 @@ test('bearer alone and capability alone are each insufficient',async t=>{
  assert.equal(x.store.count(),0);
 });
 test('OAuth subject must bind to signed FARADAY agent identity',async t=>{
- const x=await system(t),r=await call(x,'tools/call',{name:'pay_invoice',arguments:ARGS},{withProof:true,token:token(x.k,{sub:'rogue-agent'})});
+ const x=await system(t),params={name:'pay_invoice',arguments:ARGS},r=await call(x,'tools/call',params,{withProof:true,token:token(x.k,{sub:'rogue-agent'})});
  assert.equal(r.status,403);assert.equal(x.store.count(),0);
+ assert.equal((await call(x,'tools/call',params,{withProof:true})).status,200);assert.equal(x.store.count(),1);
 });
 test('fully authorized synthetic tool executes once, replay blocked',async t=>{
  const x=await system(t),params={name:'pay_invoice',arguments:ARGS};

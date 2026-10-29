@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { discover, configServers, safeLabel, getExecutableServer } from '../lib/discover.js';
 import { GraphStore, toMermaid } from '../lib/store.js';
 
@@ -33,7 +36,7 @@ test('nonexistent and malformed JSON reports safely without throwing',t=>{
 test('workspace symlink outside root is not followed',t=>{
  const root=fixture(t),outside=fixture(t);
  writeFileSync(join(outside,'hidden.json'),JSON.stringify({mcpServers:{stolen:{command:'node'}}}));
- symlinkSync(join(outside,'hidden.json'),join(root,'.mcp.json'));
+ try{symlinkSync(join(outside,'hidden.json'),join(root,'.mcp.json'));}catch(error){if(process.platform==='win32'&&error.code==='EPERM'){t.skip('Windows account cannot create symbolic links');return;}throw error;}
  const report=discover({root});assert.equal(report.servers.length,0);assert.match(report.warnings[0],/symlink/);
 });
 test('global configs remain opt-in',t=>{
@@ -63,7 +66,53 @@ test('graph metadata schema and counts persist across reopen',t=>{
  assert.equal(snap.nodes.length,4);assert.equal(snap.stats.toolCalls,1);
  assert.equal(again.events()[0].tool,'fetch');again.close();
 });
-test('auto install and uninstall restore exact MCP server entry with private backup',async t=>{
+test('graph refuses dangling database links',t=>{
+ const root=fixture(t),target=join(root,'missing'),db=join(root,'graph.sqlite');
+ try{symlinkSync(target,db,process.platform==='win32'?'junction':'file');}
+ catch(error){if(process.platform==='win32'&&error.code==='EPERM'){t.skip('Windows account cannot create symbolic links');return;}throw error;}
+ assert.throws(()=>new GraphStore(db),/Unsafe graph database path/);
+ assert.equal(existsSync(target),false);
+});
+test('graph event retention previews and deletes only events before an explicit UTC cutoff',t=>{
+ const root=fixture(t),store=new GraphStore(join(root,'graph.sqlite'));
+ try{
+  store.event({server:'demo',direction:'response',kind:'tool_call',operation:'tools/call'});
+  store.event({server:'demo',direction:'response',kind:'tool_call',operation:'tools/call'});
+  store.db.prepare('UPDATE events SET ts=? WHERE id=1').run('2025-01-01T00:00:00.000Z');
+  store.db.prepare('UPDATE events SET ts=? WHERE id=2').run('2026-01-01T00:00:00.000Z');
+  const cutoff='2026-01-01T00:00:00.000Z';
+  assert.deepEqual(store.pruneEventsBefore(cutoff),{before:cutoff,matched:1,deleted:0,applied:false});
+  assert.equal(store.snapshot().stats.events,2);
+  assert.throws(()=>store.pruneEventsBefore('2026-01-01'),/UTC timestamp/);
+  assert.throws(()=>store.pruneEventsBefore('2026-02-30T00:00:00.000Z'),/Invalid/);
+  assert.deepEqual(store.pruneEventsBefore(cutoff,{apply:true}),{before:cutoff,matched:1,deleted:1,applied:true});
+  assert.equal(store.snapshot().stats.events,1);
+ }finally{store.close();}
+});
+test('graph prune CLI previews by default and requires an existing explicit database',t=>{
+ const root=fixture(t),db=join(root,'graph.sqlite'),store=new GraphStore(db),cli=fileURLToPath(new URL('../bin/faraday.js',import.meta.url));
+ store.event({server:'demo',direction:'response',kind:'tool_call',operation:'tools/call'});
+ store.db.prepare('UPDATE events SET ts=?').run('2025-01-01T00:00:00.000Z');store.close();
+ const run=args=>spawnSync(process.execPath,[cli,'graph','prune',...args],{encoding:'utf8'});
+ const args=['--db',db,'--before','2026-01-01T00:00:00.000Z'];
+ const preview=run(args);assert.ifError(preview.error);assert.equal(preview.status,0,preview.stderr);assert.deepEqual(JSON.parse(preview.stdout),{before:args[3],matched:1,deleted:0,applied:false});
+ const applied=run([...args,'--apply']);assert.ifError(applied.error);assert.equal(applied.status,0,applied.stderr);assert.equal(JSON.parse(applied.stdout).deleted,1);
+ assert.notEqual(run(['--before',args[3],'--apply']).status,0);
+ assert.notEqual(run(['--db',join(root,'missing.sqlite'),'--before',args[3]]).status,0);
+ assert.equal(existsSync(join(root,'missing.sqlite')),false);
+});
+test('Windows auto-install refuses before creating a credential backup', {skip:process.platform!=='win32'},async t=>{
+ const {installProxy}=await import('../lib/install.js');
+ const root=fixture(t),file=join(root,'.mcp.json');
+ const original=JSON.stringify({mcpServers:{tool:{command:process.execPath,env:{AUTH:'SECRET_DO_NOT_LOG'}}}});
+ writeFileSync(file,original);
+ const options={configFile:file,server:'tool',db:join(root,'graph.sqlite'),binPath:'faraday.js',nodePath:process.execPath};
+ assert.equal(installProxy({...options,dryRun:true}).changed,false);
+ assert.throws(()=>installProxy(options),/backup ACL protection is not verified/);
+ assert.equal(readFileSync(file,'utf8'),original);
+ assert.equal(existsSync(join(root,'.faraday')),false);
+});
+test('auto install and uninstall restore exact MCP server entry with private backup',{skip:process.platform==='win32'?'Windows backup ACL protection is not verified':false},async t=>{
  const {installProxy,uninstallProxy}=await import('../lib/install.js');
  const {statSync,readFileSync}=await import('node:fs');
  const root=fixture(t),file=join(root,'.mcp.json'),db=join(root,'graph.sqlite');
@@ -81,11 +130,11 @@ test('auto install and uninstall restore exact MCP server entry with private bac
  assert.ok(!existsSync(out.backup));
 });
 test('uninstall refuses to overwrite a manually edited wrapper',async t=>{
- const {installProxy,uninstallProxy}=await import('../lib/install.js');
+ const {uninstallProxy}=await import('../lib/install.js');
  const root=fixture(t),file=join(root,'.mcp.json');
- writeFileSync(file,JSON.stringify({mcpServers:{sample:{command:'node',args:['example.js']}}}));
- installProxy({configFile:file,server:'sample',db:join(root,'graph.sqlite'),binPath:'/tmp/faraday.js',nodePath:process.execPath});
- const current=JSON.parse(readFileSync(file,'utf8'));current.mcpServers.sample.args[3]='changed';
- writeFileSync(file,JSON.stringify(current));
+ const target=join(root,'.faraday','targets');mkdirSync(target,{recursive:true});
+ const id=createHash('sha256').update(file+'\0sample').digest('hex').slice(0,24),backup=join(target,id+'.json');
+ writeFileSync(backup,JSON.stringify({mcpServers:{sample:{command:'node',args:['example.js']}}}));
+ writeFileSync(file,JSON.stringify({mcpServers:{sample:{command:process.execPath,args:['faraday.js','proxy','--config','changed']}}}));
  assert.throws(()=>uninstallProxy({configFile:file,server:'sample'}),/refusing/);
 });

@@ -8,11 +8,12 @@ import http from 'node:http';
 
 test('viewer is localhost, token gated, and returns metadata-only graph',async t=>{
  const dir=mkdtempSync(join(tmpdir(),'faraday-view-'));
- t.after(()=>rmSync(dir,{recursive:true,force:true}));
  const {server,port,token}=await serveGraph({database:join(dir,'graph.sqlite')});
- t.after(()=>new Promise(resolve=>server.close(resolve)));
+ t.after(async()=>{await new Promise(resolve=>server.close(resolve));rmSync(dir,{recursive:true,force:true});});
  const origin=`http://127.0.0.1:${port}`;
  const no=await fetch(origin+'/');assert.equal(no.status,403);
+ const unicode=await fetch(origin+'/?key='+encodeURIComponent('é'.repeat(token.length)));
+ assert.equal(unicode.status,403);
  const start=await fetch(origin+'/?key='+token,{redirect:'manual'});
  assert.equal(start.status,302);
  const cookie=start.headers.get('set-cookie').split(';')[0];

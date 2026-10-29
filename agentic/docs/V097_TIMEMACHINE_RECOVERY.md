@@ -6,7 +6,7 @@
 
 - **E21:** deterministic capture of typed synthetic intents from 12 dummy actor profiles, hash-chained trace, corruption and inconsistent-outcome detection, offline replay with alternative role/tool/resource/action allowlist, and comparison of replay outcomes. No real network, filesystem tool, or business operation is re-executed.
 - **E16:** read-only SQLite recovery inspector. Lists fresh/stale reservations and uncertain operations, requiring an operator to investigate. Never retries, deletes, or changes state. This **does not provide HA/failover**.
-- **E27:** bounded local microbenchmarks with median and p95 for ToolPolicy and TimeMachine replay. Results depend on runner hardware; **not gateway latency or benchmark against competing products**.
+- **E27:** bounded local microbenchmarks with median and p95 for ToolPolicy and TimeMachine replay, using nearest-rank percentiles and reporting warmup iterations. Results depend on runner hardware and clock resolution; **not gateway latency or benchmark against competing products**.
 - **E26:** regression tests for malformed trace, symlinks, unauthorized policy changes, idempotent duplicates, partial crashes and deterministic replay.
 - **E28:** packaging remains private. Existing release audit generates SPDX 2.3 file inventory, SHA-256 manifest, and fails on potential credentials. This is **not a signed SBOM** or SLSA attestation.
 

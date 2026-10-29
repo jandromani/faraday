@@ -13,17 +13,18 @@ export function inspectRecovery({path,now=Date.now(),staleAfterMs=60000}={}){
   try{
     const rows=db.prepare('SELECT operation_id,state,created_at,receipt_json FROM executions ORDER BY created_at ASC,operation_id ASC LIMIT 10001').all();
     if(rows.length>10000)throw Error('Too many operations to inspect');
-    const operations=[],summary={total:0,completed:0,rejected:0,uncertain:0,staleReserved:0,freshReserved:0};
+    const operations=[],summary={total:0,completed:0,rejected:0,uncertain:0,staleReserved:0,freshReserved:0,clockAnomalies:0};
     for(const row of rows){
       if(!STATES.has(row.state)||typeof row.operation_id!=='string'||!Number.isSafeInteger(row.created_at))throw Error('Invalid journal rows');
-      const ageMs=Math.max(0,now-row.created_at);summary.total++;
+      const future=row.created_at>now,ageMs=future?null:now-row.created_at;summary.total++;
+      if(future)summary.clockAnomalies++;
       if(row.state==='simulated')summary.completed++;
       else if(row.state==='upstream-rejected')summary.rejected++;
       else if(row.state==='upstream-uncertain')summary.uncertain++;
-      else if(ageMs>=staleAfterMs)summary.staleReserved++;
-      else summary.freshReserved++;
+      else if(!future && ageMs>=staleAfterMs)summary.staleReserved++;
+      else if(!future)summary.freshReserved++;
       if(row.state==='reserved'||row.state==='upstream-uncertain')operations.push({id:row.operation_id,state:row.state,
-        ageMs,operatorAction:row.state==='reserved'?'investigate-before-retrying':'read-only-reconciliation',hasReceipt:!!row.receipt_json});
+        ageMs,operatorAction:future?'investigate-clock-before-retrying':row.state==='reserved'?'investigate-before-retrying':'read-only-reconciliation',hasReceipt:!!row.receipt_json});
     }
     return {format:'faraday-recovery-inspection',version:1,mode:'read-only',summary,operations,
       caveat:'Stale reservation may or may not have reached the backend. Do not replay or purge automatically.'};

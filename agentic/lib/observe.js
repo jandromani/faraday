@@ -18,6 +18,7 @@ export class McpObserver {
     this.server = safeLabel(server);
     this.inflight = { client: new Map(), server: new Map() };
     this.partialTools = null;
+    this.listEpoch = 0;
     this.store.observedServer(this.server);
   }
   consume(raw, direction) {
@@ -40,8 +41,10 @@ export class McpObserver {
       if (isRequest) {
         const pending = this.inflight[sender];
         if (pending.size >= 2048) pending.clear();
+        const cursor=m.params?.cursor;
+        if(m.method==='tools/list' && cursor===undefined){this.partialTools=null;this.listEpoch++;}
         pending.set(keyFor(m.id), { method, name, started: performance.now(),
-          continuedList: m.method==='tools/list' && m.params?.cursor !== undefined });
+          listCursor:cursor,listEpoch:this.listEpoch });
         this.store.event({server:this.server,direction:'request',kind: name ? 'tool_call' : 'rpc', operation:method, tool:name});
         if (name) this.store.tool(this.server, name, 'called');
       } else {
@@ -58,17 +61,20 @@ export class McpObserver {
     this.store.event({server:this.server,direction:'response',kind:state.name ? 'tool_call' : 'rpc',
       operation:state.method,tool:state.name,status:outcome,
       latencyMs:Math.round(performance.now() - state.started)});
+    if(state.method==='tools/list' && state.listEpoch===this.listEpoch && (outcome!=='ok'||!Array.isArray(m.result?.tools))){this.partialTools=null;return;}
     if (state.method === 'tools/list' && Array.isArray(m.result?.tools)) {
       const page=m.result.tools.slice(0, 1000);
       // Do not treat a partial, errored or truncated tools/list page as a full
       // contract manifest; that could produce false reports of removed tools.
-      if (outcome!=='ok' || m.result.tools.length>1000) {this.partialTools=null;return;}
-      if(!state.continuedList) this.partialTools=[];
-      if(!this.partialTools) return;
-      this.partialTools.push(...page);
-      if(this.partialTools.length>2000){this.partialTools=null;return;}
-      if(typeof m.result.nextCursor==='string' && m.result.nextCursor.length>0) return;
-      const complete=this.partialTools;this.partialTools=null;
+        if(state.listEpoch!==this.listEpoch)return;
+        if (outcome!=='ok' || m.result.tools.length>1000 ||
+          (m.result.nextCursor!==undefined && (typeof m.result.nextCursor!=='string'||!m.result.nextCursor||m.result.nextCursor.length>4096))) {this.partialTools=null;return;}
+        if(state.listCursor===undefined) this.partialTools={tools:[],nextCursor:null};
+        else if(typeof state.listCursor!=='string'||!this.partialTools||state.listCursor!==this.partialTools.nextCursor){this.partialTools=null;return;}
+        this.partialTools.tools.push(...page);
+        if(this.partialTools.tools.length>2000){this.partialTools=null;return;}
+        if(m.result.nextCursor!==undefined){this.partialTools.nextCursor=m.result.nextCursor;return;}
+        const complete=this.partialTools.tools;this.partialTools=null;
       this.store.replaceContracts(this.server,complete);
     }
   }

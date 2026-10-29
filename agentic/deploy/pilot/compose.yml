@@ -37,6 +37,12 @@ services:
     depends_on: [backend]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    read_only: true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
   dummy-agent:
     image: node:22.16-alpine
     working_dir: /app
@@ -49,6 +55,12 @@ services:
     depends_on: [gateway]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    read_only: true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
 networks:
   agent_zone:
     driver: bridge

@@ -17,22 +17,33 @@ export class LocalSentinel{
  }
  sourceKey(remote){return sha(this.db.prepare('SELECT salt FROM config WHERE id=1').get().salt+'|'+String(remote??'unknown').slice(0,180));}
  isStopped(){return this.db.prepare('SELECT stop FROM config WHERE id=1').get().stop===1;}
- stop(enabled){if(typeof enabled!=='boolean')throw new AuthorityError('invalid-emergency-stop');this.db.prepare('UPDATE config SET stop=? WHERE id=1').run(enabled?1:0);this.record('control','local-operator',enabled?'emergency-stop-on':'emergency-stop-off');}
+ stop(enabled){
+  if(typeof enabled!=='boolean')throw new AuthorityError('invalid-emergency-stop');
+  try{
+   this.db.exec('BEGIN IMMEDIATE');
+   this.db.prepare('UPDATE config SET stop=? WHERE id=1').run(enabled?1:0);
+  this.#append('control','local-operator',enabled?'emergency-stop-on':'emergency-stop-off');
+   this.db.exec('COMMIT');
+  }catch{try{this.db.exec('ROLLBACK');}catch{}throw new AuthorityError('sentinel-storage-unavailable');}
+ }
  isBlocked(remote){if(this.isStopped())return true;const q=this.db.prepare('SELECT until_ms FROM quarantines WHERE source=?').get(this.sourceKey(remote));return Boolean(q&&q.until_ms>this.now());}
  record(kind,remote,reason){
   if(!['deny','allow','control','quarantine'].includes(kind)||typeof reason!=='string'||!reason||reason.length>160)throw new AuthorityError('invalid-sentinel-event');
-  const source=this.sourceKey(remote),time=this.now();
   try{
    this.db.exec('BEGIN IMMEDIATE');
-   const previous=this.db.prepare('SELECT event_hash FROM events ORDER BY seq DESC LIMIT 1').get()?.event_hash??'GENESIS';
-   const payload={time_ms:time,kind,source,reason},hash=sha(previous+'\n'+canonical(payload).toString('utf8'));
-   this.db.prepare('INSERT INTO events(time_ms,kind,source,reason,previous_hash,event_hash) VALUES(?,?,?,?,?,?)').run(time,kind,source,reason,previous,hash);
-   if(kind==='deny'){
-    const n=this.db.prepare("SELECT COUNT(*) AS count FROM events WHERE kind='deny' AND source=? AND time_ms>=?").get(source,time-this.windowMs).count;
-    if(n>=this.threshold)this.db.prepare('INSERT INTO quarantines(source,until_ms) VALUES(?,?) ON CONFLICT(source) DO UPDATE SET until_ms=max(until_ms,excluded.until_ms)').run(source,time+this.cooldownMs);
-   }
+    this.#append(kind,remote,reason);
    this.db.exec('COMMIT');return {recorded:true};
   }catch{try{this.db.exec('ROLLBACK');}catch{}throw new AuthorityError('sentinel-storage-unavailable');}
+ }
+ #append(kind,remote,reason){
+    const source=this.sourceKey(remote),time=this.now();
+    const previous=this.db.prepare('SELECT event_hash FROM events ORDER BY seq DESC LIMIT 1').get()?.event_hash??'GENESIS';
+    const payload={time_ms:time,kind,source,reason},hash=sha(previous+'\n'+canonical(payload).toString('utf8'));
+    this.db.prepare('INSERT INTO events(time_ms,kind,source,reason,previous_hash,event_hash) VALUES(?,?,?,?,?,?)').run(time,kind,source,reason,previous,hash);
+    if(kind==='deny'){
+     const n=this.db.prepare("SELECT COUNT(*) AS count FROM events WHERE kind='deny' AND source=? AND time_ms>=?").get(source,time-this.windowMs).count;
+     if(n>=this.threshold)this.db.prepare('INSERT INTO quarantines(source,until_ms) VALUES(?,?) ON CONFLICT(source) DO UPDATE SET until_ms=max(until_ms,excluded.until_ms)').run(source,time+this.cooldownMs);
+    }
  }
  verifyChain(){const rows=this.db.prepare('SELECT * FROM events ORDER BY seq').all();let previous='GENESIS';
   for(const e of rows){const payload={time_ms:e.time_ms,kind:e.kind,source:e.source,reason:e.reason};if(e.previous_hash!==previous||e.event_hash!==sha(previous+'\n'+canonical(payload).toString('utf8')))return {verified:false,count:rows.length,at:e.seq};previous=e.event_hash;}

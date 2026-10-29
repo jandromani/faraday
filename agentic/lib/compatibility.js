@@ -10,7 +10,8 @@ export function compatibilityReport({root,includeGlobal=false}={}){
  const d=discover({root,includeGlobal});
  const servers=d.servers.map(s=>({client:s.client,server:s.server,source:s.source,transport:s.transport,
  eligibleForBridge:s.transport==='stdio'||s.transport==='http',
- observed:false,conformance:'untested',warning:s.transport==='sse'?'Legacy SSE cannot be bridged by FARADAY':null}));
+ observed:false,conformance:'untested',warning:s.transport==='sse'?'Legacy SSE cannot be bridged by FARADAY':
+  s.transport==='unknown'?'Unrecognized transport; bridge eligibility not established':null}));
  return {format:'faraday-compatibility',version:1,protocol:PROTOCOL_PROFILE,servers,
  warnings:d.warnings,summary:{configured:servers.length,eligible:servers.filter(s=>s.eligibleForBridge).length,verifiedLive:0},
  note:'Static scan never executes tools and never proves compatibility.'};

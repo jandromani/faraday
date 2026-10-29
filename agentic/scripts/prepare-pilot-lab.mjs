@@ -43,6 +43,6 @@ privateWrite(join(gw,'pilot.json'),JSON.stringify({issuerKeys:{'pilot-issuer':'/
   backendSecretFile:'/run/faraday/backend-secret',receiptPrivateFile:'/run/faraday/receipt-private.pem',backendPublicFile:'/run/faraday/backend.pub',
   nonceDb:'/run/state/nonce.sqlite',journalDb:'/run/state/journal.sqlite',sentinelDb:'/run/state/sentinel.sqlite',budgetDb:'/run/state/budget.sqlite',budgets:{[AGENT]:{maxCalls:10,windowMs:60000}},
   approverKeys:{finance:{publicKeyFile:'/run/faraday/finance.pub',role:'finance'},security:{publicKeyFile:'/run/faraday/security.pub',role:'security'}},
-  approvalQuorum:2,requiredApprovalRoles:['finance','security'],backendUrl:'http://backend:8099/internal/execute'}));
+  approvalQuorum:2,requiredApprovalRoles:['finance','security'],backendUrl:'http://backend:8099/internal/execute',allowInsecureBackend:true}));
 console.log(JSON.stringify({kind:'disposable-v095',root,issuerPrivateKeyMountedToGateway:false,
   agentBackendCredentialMounted:false,realSideEffects:false}));

@@ -17,13 +17,19 @@ export function audit({project=root,packFn}={}){
    ?execFileSync('cmd.exe',['/d','/s','/c','npm pack --json --dry-run --ignore-scripts'],{cwd:project,encoding:'utf8'})
    :execFileSync('npm',['pack','--json','--dry-run','--ignore-scripts'],{cwd:project,encoding:'utf8'})));
  const result=run();if(!Array.isArray(result)||result.length!==1||!Array.isArray(result[0].files))throw Error('unrecognized-pack-manifest');
- const failures=[],files=[];
+ const failures=[],files=[],seen=new Set();
  for(const entry of result[0].files){
    const name=entry.path;
-   if(typeof name!=='string'||name.startsWith('/')||name.includes('..')||name.includes('\\')||bannedName.test(name)){failures.push({path:String(name),reason:'unsafe-package-path'});continue;}
+  if(typeof name!=='string'||name.startsWith('/')||name.includes('..')||name.includes('\\')||
+    name.split('/').some(part=>part===''||part==='.')||bannedName.test(name)){failures.push({path:String(name),reason:'unsafe-package-path'});continue;}
+   if(seen.has(name)){failures.push({path:name,reason:'duplicate-package-path'});continue;}
+   seen.add(name);
    const full=resolve(project,name);
    const relativeToProject=relative(resolve(project),full);
    if(!relativeToProject||relativeToProject==='..'||relativeToProject.startsWith('..'+sep)||isAbsolute(relativeToProject)){failures.push({path:name,reason:'path-escape'});continue;}
+  const parts=name.split('/');let parent=resolve(project),linked=false;
+  for(const part of parts.slice(0,-1)){parent=join(parent,part);if(lstatSync(parent).isSymbolicLink()){linked=true;break;}}
+  if(linked){failures.push({path:name,reason:'symlink-parent'});continue;}
    const st=lstatSync(full);
    if(!st.isFile()||st.isSymbolicLink()){failures.push({path:name,reason:'nonregular-or-symlink'});continue;}
    const bytes=readFileSync(full),s=bytes.toString('utf8');

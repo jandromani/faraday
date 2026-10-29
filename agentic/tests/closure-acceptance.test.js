@@ -47,6 +47,11 @@ test('[E05] installer dry-run, double initialization, reversible wrapping and no
  initialize({root});initialize({root});assert.equal(doctor({root}).ready,true);
  const planned=installProxy({configFile:config,server:'sandbox',db:join(root,'.faraday','graph.sqlite'),nodePath:process.execPath,binPath:resolve('bin/faraday.js'),dryRun:true});
  assert.equal(planned.changed,false);assert.deepEqual(JSON.parse(readFileSync(config,'utf8')),raw);
+ if(process.platform==='win32'){
+  assert.throws(()=>installProxy({configFile:config,server:'sandbox',db:join(root,'.faraday','graph.sqlite'),nodePath:process.execPath,binPath:resolve('bin/faraday.js')}),/backup ACL protection is not verified/);
+  assert.deepEqual(JSON.parse(readFileSync(config,'utf8')),raw);
+  t.skip('Windows auto-install is unavailable until backup ACL protection is verified');return;
+ }
  const installed=installProxy({configFile:config,server:'sandbox',db:join(root,'.faraday','graph.sqlite'),nodePath:process.execPath,binPath:resolve('bin/faraday.js')});
  assert.ok(existsSync(installed.backup));uninstallProxy({configFile:config,server:'sandbox'});
  assert.deepEqual(JSON.parse(readFileSync(config,'utf8')),raw);

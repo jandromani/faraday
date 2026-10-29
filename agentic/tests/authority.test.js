@@ -7,7 +7,7 @@ import {newIdentity,createIntent,createExecution,AuthorityGate,AuthorityIssuer,N
 import {fixture,AGENT,TOOL,RESOURCE,ACTION,ARGS,POLICY} from '../lib/authority-fixture.js';
 import {createAuthorityGateway,createSyntheticBackend} from '../lib/authority-gateway.js';
 
-function setup(t){const dir=mkdtempSync(join(tmpdir(),'faraday-v09-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));const f=fixture(dir,{now:1_800_000_000});t.after(f.close);return {f,dir};}
+function setup(t){const dir=mkdtempSync(join(tmpdir(),'faraday-v09-'));const f=fixture(dir,{now:1_800_000_000});const ledgers=[];t.after(()=>{for(const ledger of ledgers)ledger.close();f.close();rmSync(dir,{recursive:true,force:true});});return {f,dir,ledgers};}
 function make(f,{args=ARGS,agentKey=f.agent.privatePem,cap=f.capability,now=1_800_000_000}={}){
   return createExecution({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args,capability:cap,agentPrivatePem:agentKey,now});
 }
@@ -32,25 +32,28 @@ test('issuance replays and policy privilege expansion fail closed',t=>{
   assert.throws(()=>f.iss.issue(createIntent({agent:AGENT,tool:TOOL,resource:'invoice:other',action:ACTION,args:ARGS,agentPrivatePem:f.agent.privatePem,now:1_800_000_000})),/policy-denied/);
 });
 test('issuer signing private key not needed by gateway, issuer rotation rejects capability',t=>{
-  const {f,dir}=setup(t);
+  const {f,dir,ledgers}=setup(t);
   assert.ok(!Object.values(f.gate.keys).some(v=>v.includes('PRIVATE KEY')));
   const otherIssuer=newIdentity();
   const rotated=new AuthorityGate({issuerKeys:{'lab-issuer':otherIssuer.publicPem},registry:f.registry,policy:POLICY,ledger:new NonceLedger(join(dir,'other.sqlite')),now:()=>1_800_000_000});
-  t.after(()=>rotated.ledger.close());assert.throws(()=>rotated.authorize({capability:f.capability,proof:f.proof}),/invalid-signature/);
+  ledgers.push(rotated.ledger);assert.throws(()=>rotated.authorize({capability:f.capability,proof:f.proof}),/invalid-signature/);
 });
 test('gateway rejects stale times, unknown agent and different policy versions',t=>{
-  const {f,dir}=setup(t);const expired=new AuthorityGate({issuerKeys:{'lab-issuer':f.issuer.publicPem},registry:f.registry,policy:POLICY,ledger:new NonceLedger(join(dir,'expired.sqlite')),now:()=>1_800_000_310});
-  t.after(()=>expired.ledger.close());assert.throws(()=>expired.authorize({capability:f.capability,proof:f.proof}),/expired/);
+  const {f,dir,ledgers}=setup(t);const expired=new AuthorityGate({issuerKeys:{'lab-issuer':f.issuer.publicPem},registry:f.registry,policy:POLICY,ledger:new NonceLedger(join(dir,'expired.sqlite')),now:()=>1_800_000_310});
+  ledgers.push(expired.ledger);assert.throws(()=>expired.authorize({capability:f.capability,proof:f.proof}),/expired/);
   const revoked=new AuthorityGate({issuerKeys:{'lab-issuer':f.issuer.publicPem},registry:{},policy:POLICY,ledger:new NonceLedger(join(dir,'revoked.sqlite')),now:()=>1_800_000_000});
-  t.after(()=>revoked.ledger.close());assert.throws(()=>revoked.authorize({capability:f.capability,proof:f.proof}),/unknown-agent/);
+  ledgers.push(revoked.ledger);assert.throws(()=>revoked.authorize({capability:f.capability,proof:f.proof}),/unknown-agent/);
 });
 test('concurrent uses of the same token: one success only',async t=>{
   const {f}=setup(t);const outcomes=await Promise.all(Array.from({length:16},()=>Promise.resolve().then(()=>{try{f.gate.authorize({capability:f.capability,proof:f.proof});return 'ok';}catch{return 'denied';}})));
   assert.equal(outcomes.filter(x=>x==='ok').length,1);
 });
-test('private key files require restrictive mode, no symlink',t=>{
+test('private key file can be read',t=>{
   const {dir}=setup(t);const path=join(dir,'private.pem');writeFileSync(path,newIdentity().privatePem,{mode:0o600});
-  assert.match(readKeyFile(path,{privateKey:true}),/PRIVATE KEY/);chmodSync(path,0o644);
+  assert.match(readKeyFile(path,{privateKey:true}),/PRIVATE KEY/);
+});
+test('private key files require restrictive POSIX mode',{skip:process.platform==='win32'?'POSIX mode does not verify Windows ACLs':false},t=>{
+  const {dir}=setup(t);const path=join(dir,'private.pem');writeFileSync(path,newIdentity().privatePem,{mode:0o600});chmodSync(path,0o644);
   assert.throws(()=>readKeyFile(path,{privateKey:true}),/unsafe-private-key/);
 });
 test('HTTP gateway: denies missing proof and does not forward it',async t=>{

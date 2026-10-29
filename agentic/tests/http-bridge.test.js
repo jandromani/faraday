@@ -20,7 +20,7 @@ function workspace(t) {
   const dir=mkdtempSync(join(tmpdir(),'faraday-http-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
   return {dir,db:join(dir,'graph.sqlite'),config:join(dir,'mcp.json')};
 }
-async function fixture(t,{sse=true,redirect=false}={}) {
+async function fixture(t,{sse=true,redirect=false,protocolVersion='2026-07-28',initializeSse=false}={}) {
   const seen=[];
   const app=createServer(async(req,res)=>{
     let body='';for await (const chunk of req) body+=chunk;
@@ -33,7 +33,11 @@ async function fixture(t,{sse=true,redirect=false}={}) {
       res.writeHead(200,{'content-type':'application/json',...(session?{'mcp-session-id':'DEMO-session-id'}:{})});
       res.end(JSON.stringify(obj));
     };
-    if(m.method==='initialize')return json({jsonrpc:'2.0',id:m.id,result:{protocolVersion:'2026-07-28',capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}}},true);
+    if(m.method==='initialize'){
+      const result={jsonrpc:'2.0',id:m.id,result:{protocolVersion,capabilities:{tools:{}},serverInfo:{name:'fixture',version:'1'}}};
+      if(initializeSse){res.writeHead(200,{'content-type':'text/event-stream','mcp-session-id':'DEMO-session-id'});res.end('data: '+JSON.stringify(result)+'\n\n');return;}
+      return json(result,true);
+    }
     if(m.method==='notifications/initialized') {res.writeHead(202).end();return;}
     if(m.method==='tools/list') {
       const response={jsonrpc:'2.0',id:m.id,result:{tools:LIST}};
@@ -92,6 +96,18 @@ test('HTTP bridge forwards JSON and SSE, persists contracts and redacts content'
   store.close();
 });
 
+for(const initializeSse of [false,true]) test(`HTTP bridge uses server-negotiated version after ${initializeSse?'SSE':'JSON'} initialization`,async t=>{
+  const {db,config:conf}=workspace(t),fx=await fixture(t,{protocolVersion:'2025-11-25',initializeSse});
+  writeFileSync(conf,JSON.stringify(config(fx.url)));
+  const bridge=new HttpBridge({server:configuredHttpServer(conf,'remote'),db,emit:()=>{}});
+  await bridge.accept(JSON.stringify(init));
+  await bridge.accept(JSON.stringify(rpc(2,'tools/list')));
+  await bridge.close();
+  assert.equal(fx.seen[0].headers['mcp-protocol-version'],'2026-07-28');
+  assert.equal(fx.seen[1].headers['mcp-protocol-version'],'2025-11-25');
+  assert.equal(fx.seen[1].headers['mcp-session-id'],'DEMO-session-id');
+});
+
 test('HTTP bridge launched as CLI subprocess can handle real JSON-RPC stdio',async t=>{
   const {db,config:conf}=workspace(t),fx=await fixture(t,{sse:false});
   writeFileSync(conf,JSON.stringify(config(fx.url)));
@@ -107,7 +123,7 @@ test('HTTP bridge launched as CLI subprocess can handle real JSON-RPC stdio',asy
   const store=new GraphStore(db);assert.equal(store.snapshot().stats.contracts,1);store.close();
 });
 
-test('install/uninstall converts HTTP to stdio shim, restores exact config entry; dry-run does not write',async t=>{
+test('install/uninstall converts HTTP to stdio shim, restores exact config entry; dry-run does not write',{skip:process.platform==='win32'?'Windows backup ACL protection is not verified':false},async t=>{
   const {db,config:conf}=workspace(t),fx=await fixture(t);
   const data=config(fx.url);
   writeFileSync(conf,JSON.stringify(data,null,2));

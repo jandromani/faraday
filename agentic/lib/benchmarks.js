@@ -4,13 +4,14 @@ import {ToolPolicy} from './security-policy.js';
 import {captureSynthetic,replaySynthetic} from './timemachine.js';
 const percentile=(sorted,p)=>sorted[Math.max(0,Math.min(sorted.length-1,Math.ceil(sorted.length*p)-1))];
 function measure(task,iterations){
-  for(let i=0;i<Math.min(150,iterations);i++)task();
+  const warmupIterations=Math.min(150,iterations);
+  for(let i=0;i<warmupIterations;i++)task();
   const samples=[];
   for(let i=0;i<iterations;i++){
     const begin=performance.now();task();samples.push(performance.now()-begin);
   }
   samples.sort((a,b)=>a-b);
-  return {iterations,medianMs:Number(percentile(samples,0.5).toFixed(4)),p95Ms:Number(percentile(samples,0.95).toFixed(4)),maxMs:Number(samples.at(-1).toFixed(4))};
+  return {iterations,warmupIterations,medianMs:percentile(samples,0.5),p95Ms:percentile(samples,0.95),maxMs:samples.at(-1)};
 }
 export function runBenchmarks({iterations=200}={}){
   if(!Number.isSafeInteger(iterations)||iterations<10||iterations>2000)throw Error('Iterations must be 10–2000');
@@ -18,7 +19,7 @@ export function runBenchmarks({iterations=200}={}){
   const req={jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'read_document',arguments:{id:'synthetic'}}};
   const trace=captureSynthetic({seed:42});
   return {format:'faraday-offline-microbenchmarks',version:1,environment:{node:process.version,platform:process.platform,arch:process.arch,
-    cpuCount:null},cases:{policyDecision:measure(()=>policy.decision(req),iterations),replay:measure(()=>replaySynthetic(trace),iterations)},
+    cpuCount:null},percentileMethod:'nearest-rank',cases:{policyDecision:measure(()=>policy.decision(req),iterations),replay:measure(()=>replaySynthetic(trace),iterations)},
     limitations:['Single-process local microbenchmarks; NOT end-to-end gateway throughput.',
       'Timing depends on CPU contention, runtime, and warmup; do not interpret as an SLA.',
       'No external tools, models or network services invoked.']};

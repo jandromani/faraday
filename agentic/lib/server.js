@@ -13,8 +13,10 @@ const ASSETS = new Map([
   ['/style.css', ['style.css','text/css; charset=utf-8']],
 ]);
 function constantTimeEquals(a, b) {
-  if (typeof a !== 'string' || a.length !== b.length) return false;
-  return timingSafeEqual(Buffer.from(a),Buffer.from(b));
+  if (typeof a !== 'string') return false;
+  const left=Buffer.from(a),right=Buffer.from(b);
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left,right);
 }
 
 /** Serve metadata-only read-only UI on loopback with an ephemeral access key. */

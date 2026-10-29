@@ -10,6 +10,8 @@ import {signReceipt} from './pilot-receipts.js';
 import {verifyBackendAttestation} from './backend-attestation.js';
 import {decodeApprovals,verifyApprovals} from './approvals.js';
 import {OAuthBoundaryError} from './mcp-oauth-resource.js';
+import {createFailClosedGatewayPolicyPort} from './gateway-policy-port.js';
+import {pilotBackendEndpoint} from './pilot-endpoint.js';
 const VERSION='2026-07-28',PREVIOUS='2025-11-25';
 const PATH='/mcp';
 const json=(res,status,data)=>{const bytes=Buffer.from(JSON.stringify(data));res.writeHead(status,{'content-type':'application/json','content-length':bytes.length,'cache-control':'no-store','x-content-type-options':'nosniff'});res.end(bytes);};
@@ -35,11 +37,11 @@ async function bounded(response,maxBytes=8192){
 }
 export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,receiptPrivatePem,backendPublicPem,
       fetchFn=fetch,onEvent=()=>{},now=()=>Math.floor(Date.now()/1000),allowedOrigins=[],
-      approvalConfig=null,sentinel=null,budget=null,oauthResource=null}){
-  const endpoint=new URL(backendUrl);
-  if(!['http:','https:'].includes(endpoint.protocol)||endpoint.pathname!=='/internal/execute'||endpoint.search||endpoint.hash||endpoint.username||endpoint.password)throw Error('Fixed backend endpoint required');
+  approvalConfig=null,sentinel=null,budget=null,oauthResource=null,externalPolicy=null,allowInsecureBackend=false}){
+  const endpoint=pilotBackendEndpoint(backendUrl,{allowInsecureBackend});
   if(typeof backendSecret!=='string'||backendSecret.length<32||!gate||!journal||typeof journal.reserve!=='function'||!receiptPrivatePem||!backendPublicPem)throw Error('Secure Pilot requires gate, journal, gateway/backend signing identities and service credential');
   if(approvalConfig && (!approvalConfig.approverKeys||!Number.isSafeInteger(approvalConfig.quorum)||approvalConfig.quorum<1))throw Error('Invalid approval configuration');
+  const evaluateExternalPolicy=externalPolicy===null?null:createFailClosedGatewayPolicyPort(externalPolicy);
   return http.createServer(async(req,res)=>{
     if(req.url==='/healthz'&&req.method==='GET')return json(res,200,{service:'faraday-secure-pilot',status:'ok'});
     if(oauthResource&&req.method==='GET'&&['/.well-known/oauth-protected-resource/mcp','/.well-known/oauth-protected-resource'].includes(req.url))return json(res,200,oauthResource.metadata);
@@ -90,12 +92,19 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,
       if(typeof capability!=='string'||capability.length>16000)throw new AuthorityError('invalid-capability');
       // Approval is evaluated BEFORE spending the capability, bound to the exact signed intent.
       if(digest(msg.params.arguments)!==digest(proof.payload?.args))throw new AuthorityError('argument-mismatch');
+      if(evaluateExternalPolicy){
+        const decision=await evaluateExternalPolicy({agent:proof.payload?.agent,method:msg.method,resource:proof.payload?.resource});
+        if(!decision.allowed)throw new AuthorityError('external-policy-denied');
+        if(sentinel?.isBlocked(remote))throw new AuthorityError('execution-suspended');
+        if(oauthResource)oauthIdentity=oauthResource.verifyAuthorization(req.headers.authorization,oauthResource.executeScope);
+      }
       if(approvalConfig){
         verifyApprovals({bundle:decodeApprovals(req.headers['x-faraday-approvals']),
           approverKeys:approvalConfig.approverKeys,quorum:approvalConfig.quorum,requiredRoles:approvalConfig.requiredRoles??[],
           capability,agent:proof.payload.agent,tool:proof.payload.tool,resource:proof.payload.resource,
           action:proof.payload.action,args:msg.params.arguments,now:now()});
       }
+          if(oauthResource&&oauthIdentity.subject!==proof.payload?.agent)throw new AuthorityError('oauth-agent-mismatch');
       auth=gate.authorize({capability,proof});
       if(oauthResource&&oauthIdentity.subject!==auth.agent)throw new AuthorityError('oauth-agent-mismatch');
       if(auth.tool!=='pay_invoice'||auth.resource!=='invoice:demo'||auth.action!=='pay')throw new AuthorityError('invalid-scope');
@@ -115,7 +124,7 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,
       if(upstream.status===200 && result.status==='simulated' && result.operationId===auth.jti && result.requestHash===expected){
         verifyBackendAttestation({publicPem:backendPublicPem,attestation:result.attestation,operationId:auth.jti,requestHash:expected});
         outcome='simulated';backendAttestation=result.attestation;responseHash=digest(result.attestation);
-      }else outcome='upstream-rejected';
+      }
     }catch{outcome='upstream-uncertain';}
     let receipt;
     try{

@@ -11,6 +11,8 @@ npm run test:all
 npm run assurance:ci
 ```
 
+`npm run test:python` uses `FARADAY_PYTHON` when set, otherwise `python` on Windows or `python3` elsewhere. Python and the test dependencies must already be installed; platform-specific tests may be skipped. `test:all` also requires the other documented local tools and does not by itself prove enterprise readiness.
+
 ---
 
 ## FARADAY v0.99.3 — MCP Streamable HTTP + OAuth Resource Boundary
@@ -131,6 +133,10 @@ The [Authority Preview architecture, threat model and limitations](docs/V09_AUTH
 
 **Status:** local, offline-first development tool. **Not** a mandatory security gateway, code semantic indexer, real agent identity provider, or proof of zero-bypass execution. It is not yet published to npm. No claims of production certification or universal compatibility.
 
+The HTTP bridge uses the protocol version returned by a successful initialization; this does not establish full MCP transport conformance. Contract pagination rejects mismatched cursors and stale overlapping listings, but observed graph edges do not prove complete causality. Python adapter tests using simulated SDK interfaces do not establish compatibility with every real SDK version.
+
+**Windows:** automatic `faraday install` is disabled until backup ACLs can be verified; `--dry-run` and uninstalling an existing wrapper remain available. Existing backups may contain credentials and need owner review. The security audit reports unknown ACLs as review, not pass.
+
 ## FARADAY Shield — Build 007 (new)
 
 This version adds **opt-in deny-by-default MCP tool enforcement**, DNS-pinned egress validation against SSRF, bounded HTTP responses, a local security posture audit, protected SQLite file permissions, and pseudonymization of metadata before any external AI request.
@@ -185,7 +191,18 @@ faraday install --config /path/to/agent-project/.mcp.json --server my-server \
   --db /path/to/agent-project/.faraday/graph.sqlite
 ```
 
-The installer wraps one selected **strict-JSON stdio or Streamable HTTP MCP server** and privately backs up the original launch entry in `.faraday/targets/`. Backups may contain credentials and must remain private. For stdio it forwards the original wire bytes unchanged. For HTTP servers it converts JSON-RPC stdio frames into authenticated HTTP POST requests and translates JSON/SSE responses back into JSON-RPC stdio frames, passing authorized tool calls through to the existing upstream. **The HTTP bridge is not transparent at the transport layer**, and neither adapter enforces Gate policies. `uninstall` refuses to overwrite a wrapper modified externally.
+On supported POSIX systems the installer wraps one selected **strict-JSON stdio or Streamable HTTP MCP server** and backs up the original launch entry in `.faraday/targets/` using POSIX file modes. Backups may contain credentials and must remain private. For stdio it forwards the original wire bytes unchanged. For HTTP servers it converts JSON-RPC stdio frames into authenticated HTTP POST requests and translates JSON/SSE responses back into JSON-RPC stdio frames, passing authorized tool calls through to the existing upstream. **The HTTP bridge is not transparent at the transport layer**, and neither adapter enforces Gate policies. `uninstall` refuses to overwrite a wrapper modified externally.
+
+### Event retention
+
+Preview an event cutoff, then explicitly apply it:
+
+```bash
+faraday graph prune --db /path/to/graph.sqlite --before 2026-01-01T00:00:00.000Z
+faraday graph prune --db /path/to/graph.sqlite --before 2026-01-01T00:00:00.000Z --apply
+```
+
+Only event rows strictly older than the UTC cutoff are affected. Nodes, edges, contracts, other databases and backups are not removed. SQLite WAL, free pages and backups may retain deleted content; this is not secure erasure or a complete personal-data deletion mechanism. The preview is a snapshot and can change before applying it.
 
 ### Iteration 3 — Contracts and impact analysis
 
@@ -271,7 +288,7 @@ flowchart LR
 ## Privacy and security
 
 - No model prompts, full tool arguments, results, raw HTTP URLs, environment variable values or schema descriptions are recorded by Graph. Only conservative structural schemas and metadata are stored. Some tool/property names can still be revealing, so treat `.faraday` as private.
-- For remote MCP, the adapter forwards configured auth headers in memory, follows **no redirects**, and refuses plaintext non-loopback URLs. HTTP credentials are retained only in the private mode-0600 configuration backup, not in events. Environment placeholders like `${MCP_TOKEN}` are resolved at runtime from the bridge process environment.
+- For remote MCP, the adapter forwards configured auth headers in memory, follows **no redirects**, and refuses plaintext non-loopback URLs. HTTP credentials may be retained in the POSIX mode-0600 configuration backup, not in events. Automatic installation is disabled on Windows; ACL protection of existing backups is not verified. Environment placeholders like `${MCP_TOKEN}` are resolved at runtime from the bridge process environment.
 - The proxy executes the previously configured command with its provided environment. **Do not** use untrusted MCP configurations. `init`, `doctor`, `scan`, `contracts` and `serve` do not execute tools.
 - A local HTTP viewer binds exclusively to `127.0.0.1`, uses an ephemeral session key and `no-store` responses. Do not share its URL.
 - Graph is an **observer**, not an enforcement/security boundary. Client workflows using direct API calls or another uninstrumented MCP path are invisible.

@@ -38,8 +38,10 @@ export function configServers(config) {
     if (!servers || typeof servers !== 'object' || Array.isArray(servers)) throw new Error(`Invalid ${key}`);
     for (const [name, data] of Object.entries(servers)) {
       if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
-      const transport = (data.type === 'http' || data.type === 'streamable-http' || data.type === 'sse' ||
-        (!data.command && typeof data.url === 'string')) ? (data.type === 'sse' ? 'sse' : 'http') : 'stdio';
+      const transport = data.type != null && !['stdio','http','streamable-http','sse'].includes(data.type)
+        ? 'unknown'
+        : (data.type === 'http' || data.type === 'streamable-http' || data.type === 'sse' ||
+          (data.type == null && !data.command && typeof data.url === 'string')) ? (data.type === 'sse' ? 'sse' : 'http') : 'stdio';
       values.push({ name, data, transport });
     }
   }

@@ -14,6 +14,7 @@ import sqlite3
 import sys
 import tempfile
 import time
+from contextlib import closing
 from pathlib import Path
 from typing import Any, Callable
 
@@ -109,7 +110,7 @@ class SQLiteReplayStore:
 
     def __init__(self, db_path: str | Path):
         self.path = str(db_path)
-        with self._connect() as con:
+        with closing(self._connect()) as con:
             con.execute("CREATE TABLE IF NOT EXISTS spent_tokens ("
                         "jti TEXT PRIMARY KEY, exp INTEGER NOT NULL, used_at INTEGER NOT NULL)")
 
@@ -120,7 +121,7 @@ class SQLiteReplayStore:
 
     def spend(self, jti: str, exp: int, now: int) -> None:
         try:
-            with self._connect() as con:
+            with closing(self._connect()) as con:
                 con.execute("BEGIN IMMEDIATE")
                 con.execute("INSERT INTO spent_tokens (jti, exp, used_at) VALUES (?, ?, ?)",
                             (jti, exp, now))

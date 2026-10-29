@@ -90,7 +90,11 @@ class AdapterTests(unittest.TestCase):
     def test_recorder_file_symlink_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             target=pathlib.Path(temp,'target');target.write_text('secret')
-            alias=pathlib.Path(temp,'alias');alias.symlink_to(target)
+            alias=pathlib.Path(temp,'alias')
+            try:alias.symlink_to(target)
+            except OSError as error:
+                if os.name=='nt' and getattr(error,'winerror',None)==1314:self.skipTest('Windows account cannot create symbolic links')
+                raise
             with self.assertRaises((OSError,ValueError)):
                 Recorder(alias).record('crewai','agent','tool','tool_call','ok')
             self.assertEqual(target.read_text(),'secret')

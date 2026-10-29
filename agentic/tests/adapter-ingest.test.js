@@ -4,6 +4,7 @@ import {mkdtempSync,writeFileSync,symlinkSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {GraphStore} from '../lib/store.js';
 import {ingestAdapterFile,validateAdapterRecord} from '../lib/adapter-ingest.js';
 const make=()=>mkdtempSync(join(tmpdir(),'faraday-adapters-'));
@@ -21,17 +22,26 @@ test('metadata-only import is idempotent and creates graph',()=>{
 test('reject raw arguments, unknown keys, invalid digest and dangerous files',()=>{
   assert.throws(()=>validateAdapterRecord(e({arguments:{secret:'hi'}})),/metadata-only/);
   assert.throws(()=>validateAdapterRecord(e({agent:'raw_sensitive_name'})),/record value/);
-  const dir=make(),file=join(dir,'events'),alias=join(dir,'alias');
+  const dir=make(),file=join(dir,'events');
   writeFileSync(file,JSON.stringify(e({tool:'raw'}))+'\n');
   assert.throws(()=>ingestAdapterFile({file,db:join(dir,'graph.sqlite')}));
-  symlinkSync(file,alias);
+});
+test('reject symlinked adapter files',t=>{
+  const dir=make(),file=join(dir,'events'),alias=join(dir,'alias');
+  writeFileSync(file,JSON.stringify(e())+'\n');
+  try{symlinkSync(file,alias);}catch(error){if(process.platform==='win32'&&error.code==='EPERM'){t.skip('Windows account cannot create symbolic links');return;}throw error;}
   assert.throws(()=>ingestAdapterFile({file:alias,db:join(dir,'graph.sqlite')}),/regular file/);
 });
-test('Python adapters produce events consumable by Node graph without real framework or paid model',()=>{
+test('all Python adapters produce metadata consumable by Node without real SDKs or models',()=>{
   const dir=make(),db=join(dir,'graph.sqlite'),trace=join(dir,'trace.jsonl');
-  const script=`import sys\nsys.path.insert(0, ${JSON.stringify(new URL('../python',import.meta.url).pathname)})\nfrom faraday_adapters import Recorder,wrap_tool\nr=Recorder(${JSON.stringify(trace)})\nassert wrap_tool(lambda x:x+1,name='read',recorder=r,agent='dummy')(3)==4\n`;
-  const result=spawnSync('python3',['-c',script],{encoding:'utf8'});
+  const script=`import sys, asyncio, types\nsys.path.insert(0, ${JSON.stringify(fileURLToPath(new URL('../python',import.meta.url)))})\nfrom faraday_adapters import Recorder,wrap_tool,wrap_node,make_tool_hooks,make_function_tool\nr=Recorder(${JSON.stringify(trace)})\nassert wrap_tool(lambda x:x+1,name='read',recorder=r,agent='dummy')(3)==4\nassert wrap_node(lambda state:state,name='node',recorder=r)({'secret':'PRIVATE_VALUE'})=={'secret':'PRIVATE_VALUE'}\nbefore,after=make_tool_hooks(recorder=r,allowed_tools={'read'})\nctx=types.SimpleNamespace(tool_name='write',agent=types.SimpleNamespace(role='crew'))\nassert before(ctx) is False\nafter(ctx)\nclass FunctionTool:\n def __init__(self,**kwargs): self.__dict__.update(kwargs)\nsys.modules['agents']=types.SimpleNamespace(FunctionTool=FunctionTool)\ntool=make_function_tool(lambda text:text,name='echo',params_json_schema={'type':'object'},recorder=r)\nassert asyncio.run(tool.on_invoke_tool(None,'{"text":"PRIVATE_VALUE"}'))=='PRIVATE_VALUE'\n`;
+  const result=spawnSync(process.env.FARADAY_PYTHON||'python3',['-c',script],{encoding:'utf8'});
+  assert.ifError(result.error);
   assert.equal(result.status,0,result.stderr);
-  assert.equal(ingestAdapterFile({file:trace,db}).imported,1);
-  const store=new GraphStore(db);assert.equal(store.snapshot().stats.events,1);store.close();
+  assert.equal(ingestAdapterFile({file:trace,db}).imported,5);
+  assert.equal(ingestAdapterFile({file:trace,db}).skipped,5);
+  const store=new GraphStore(db),graph=store.snapshot();
+  assert.equal(graph.stats.events,5);
+  assert.deepEqual(graph.nodes.filter(node=>node.type==='framework').map(node=>node.label).sort(),['crewai','langgraph','openai-agents']);
+  assert.ok(!JSON.stringify(graph).includes('PRIVATE_VALUE'));store.close();
 });

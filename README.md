@@ -1,111 +1,62 @@
-# FARADAY — Trust Fabric
+# FARADAY - Trust Fabric
 
-## FARADAY v0.9.0 — Authority Preview (latest)
+FARADAY is a security research prototype for agent tool execution. The current
+Node.js developer preview is **0.99.4**; the earlier Python builds remain as
+standalone proof-of-concept implementations. It is not independently audited and
+must not be used as a production authorization boundary.
 
-**Graph + Shield + Authority:** signed Ed25519 capabilities, agent proof-of-possession, exact resource/action policies, transactional replay protection and a synthetic gateway reachable by an isolated dummy agent. The Docker example keeps the protected backend on a separate private network. **Not production zero-trust, not real SPIFFE/OAuth/MCP authentication, no real payments.**
+The [agentic package](agentic/README.md) includes MCP discovery and observation,
+an Authority prototype with signed capabilities and proof of possession, and a
+limited MCP pilot with a synthetic backend and signed receipts. OAuth resource
+validation is available in the pilot when explicitly configured; it is not a full
+identity provider or proof of workload identity. The package is private and is
+not published to npm.
 
-- [Developer Preview source and CLI](agentic/README.md)
-- [Authority v0.9 architecture, verification and security limitations](agentic/docs/V09_AUTHORITY_PREVIEW.md)
-- [CI: Node.js 22/24 plus network-isolation job](https://github.com/jandromani/faraday/actions)
+The optional external policy filter in the pilot is an additional deny control,
+not a replacement for Authority. An external gateway is not yet integrated or
+certified. The synthetic Docker topology is not proof of isolation in other
+deployments. The pilot never makes real payments, and an uncertain backend
+result requires reconciliation rather than an automatic retry.
+
+## Run locally
+
+Node.js 22.16 or later is required for SQLite. The Python prototypes require
+Python 3.11 or later; Build 002 also requires the dependencies in
+[requirements.txt](requirements.txt).
 
 ```bash
 cd agentic
-npm run test:all
+npm test
 npm run authority
-npm run authority:eval
-npm run lab:docker # Requires Docker; demonstrates the isolated synthetic backend
+npm run pilot
 ```
 
----
-
-
-## FARADAY Graph — Iterations 1 and 2 (implemented)
-
-The [agentic/](agentic/) package is an installable **local Node.js CLI** that inventories MCP client configurations, builds a graph in SQLite and observes real `stdio` MCP calls through a transparent proxy. It includes a local interactive SVG topology viewer, Mermaid/JSON exports, reversible installation and a synthetic demo.
-
-```bash
-cd agentic
-npm link
-faraday demo
-faraday serve
-# scan an existing project:
-faraday scan --root /path/to/project
-# wrap a selected stdio server and restore it later:
-faraday install --config /path/to/project/.mcp.json --server my-server
-faraday uninstall --config /path/to/project/.mcp.json --server my-server
-```
-
-No npm package is published; install from the repository. Node 22.16+ is required for built-in SQLite. These are **observation-only** features: the proxy does not block any calls or implement mandatory network enforcement. Runtime HTTP/SSE proxying and code-indexing are not part of these iterations.
-
-- [Full usage, architecture, security caveats and limitations](agentic/README.md)
-- [Agentic Graph CI](.github/workflows/agentic-ci.yml)
-
----
-
-
-## Build 002 — Asymmetric authority and authenticated agent proof (implemented)
-
-Build 002 adds **Ed25519** capability signing (private key in a separate issuer, public key in the Gate), a signed agent intent and execution proof bound to the capability fingerprint, pinned agent public keys, anti-replay checks and a loopback-only separate issuer process for development.
-
-**Verified:** 19 new adversarial security tests, plus the six Build 001 tests; GitHub Actions covers Python 3.11–3.13 and the interprocess demo.
+From the repository root, run the Python tests with:
 
 ```bash
 python -m pip install -r requirements.txt
 python -m unittest discover -s tests -v
-python scripts/demo_v2.py
 ```
 
-Read the [Build 002 security model and limitations](docs/BUILD002.md). See the [competitive analysis and go/no-go criteria](docs/COMPETITIVE_ANALYSIS.md) — **this is not a novel category**. **This does not yet prevent bypasses via direct API calls, provide independent SPIFFE identity attestation, or execute real tools.** The next milestone is Build 003: mandatory MCP enforcement with network-isolated backends and verified execution receipts.
+Docker is required for the optional synthetic network-isolation demonstration.
+The full `npm run test:all` currently contains a POSIX-specific Python command;
+its availability and results depend on the platform and installed tools. On
+Windows, POSIX file mode checks do not verify private-key ACLs. Set
+`FARADAY_PYTHON` to an interpreter path when the Node adapter test cannot use
+`python3`. Some symlink tests require permission to create symbolic links.
+Proxy installation creates backups that can contain credentials. Automatic
+installation is disabled on Windows because POSIX modes do not verify Windows
+ACLs; dry-run and uninstall remain available. Existing backups must be reviewed
+and protected using Windows ACLs by their owner.
 
----
+## Evidence and limits
 
+- [Developer preview, usage and limitations](agentic/README.md)
+- [Gateway decision and integration requirements](agentic/docs/ADR-002-GATEWAY-MAKE-OR-BUY.md)
+- [Assurance evidence gates](agentic/docs/ADR-004-ASSURANCE-GATES.md)
+- [Roadmap status](docs/ROADMAP_STATUS.md)
+- [Historical Build 002 model](docs/BUILD002.md)
 
-> Intelligence proposes. Authority executes.
-
-FARADAY is a zero-trust security fabric for autonomous AI agents. The **Authority Boundary** keeps permission to execute outside the LLM.
-
-## Trust Fabric
-
-- **Identity** — verifiable agent and workload identities
-- **Channels** — authenticated tool communications
-- **Authority** — default-deny decisions, narrow, expiring capabilities
-- **Enclave** — isolated execution
-- **Provenance** — evidence and auditability
-- **Sentinel** — detection and response
-- **Control** — governance and operations
-
-## Build 001 — FARADAY Gate (Python standard-library proof of concept)
-
-The first build demonstrates:
-
-- HMAC-SHA256 signed capabilities, fixed audience `faraday-tool-executor`
-- TTL of 1–300 seconds, cryptographically random token identifiers
-- Exact binding to caller, tool and input arguments
-- Default-deny sample policy for `agent_finance/pay_invoice`, `supplier_001`, EUR, 1–20,000 cents
-- Atomic one-use token consumption with SQLite (restart-safe)
-- Six standard-library unit tests and CLI demo
-- **No real payment or tool execution**
-
-Run with Python 3.11+:
-
-```bash
-python -m unittest discover -s tests -v
-python faraday.py demo
-```
-
-## Security limitations
-
-**Prototype only: do not use as a production authorization boundary.**
-
-The issuer and gate are classes in a single process with a shared key; the caller's identity is only an asserted string, not an independently authenticated workload identity. There is no mandatory MCP/HTTP proxy, no network enforcement preventing direct tool access, no isolated issuer, no key rotation or revocation, and no tamper-evident audit trail. Spending tokens before execution fails closed but requires end-to-end idempotency and failure recovery for real side effects.
-
-## Roadmap
-
-1. **Build 002:** isolate issuer, enforce authenticated identities, asymmetric signatures, negative testing.
-2. **Build 003:** mandatory MCP proxy and deny direct tool access, idempotent downstream adapters.
-3. **Build 004:** sandboxed execution, persistent signed provenance, Sentinel detection, red-team testing.
-4. **Build 005:** Control console in Next.js/Vercel; security enforcement runs in independently secured infrastructure.
-
-Intended architecture: `apps/console`, `services/gate`, `services/issuer`, `services/mcp-proxy`, `packages/policies`.
-
-Current state: Build 001 authorization-only prototype; not independently audited.
+External gateway enforcement, deployment-specific bypass resistance, key
+management and independent validation remain open. Local test results and
+synthetic evidence do not certify a deployment or establish production readiness.

@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn,spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {mkdtempSync,rmSync,writeFileSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
@@ -8,6 +9,7 @@ import {DUMMY_AGENTS,DISTRIBUTION,generateScenarios,runLab} from '../lib/lab.js'
 import {diffAuthority,affectedClients} from '../lib/trust-diff.js';
 import {compatibilityReport} from '../lib/compatibility.js';
 import {GraphStore} from '../lib/store.js';
+import {safeLabel} from '../lib/discover.js';
 
 const CLI=resolve('bin/faraday.js');
 const before={version:1,mode:'enforce',maxArgumentBytes:8192,allowedTools:{sandbox:['read_document']}};
@@ -26,6 +28,14 @@ test('1,000 unique scenarios have exact category distribution',()=>{
  for(const [type,count] of Object.entries(DISTRIBUTION))assert.equal(rows.filter(x=>x.category===type).length,count);
 });
 test('scenario corpus repeatable for fixed seed',()=>assert.deepEqual(generateScenarios(123),generateScenarios(123)));
+test('scenario corpus exercises all actors and local rule variants',()=>{
+ for(const seed of [0,42,123]){
+  const rows=generateScenarios(seed);
+  assert.equal(new Set(rows.map(row=>row.agent)).size,DUMMY_AGENTS.length);
+  assert.equal(new Set(rows.filter(row=>row.category==='legitimate').map(row=>row.variant%2)).size,2);
+  assert.equal(new Set(rows.filter(row=>row.category==='ssrf').map(row=>row.variant%4)).size,4);
+ }
+});
 test('changing seed changes synthetic variants',()=>assert.notDeepEqual(generateScenarios(123),generateScenarios(124)));
 test('lab reports verified checks vs unsupported controls separately',()=>{
  const report=runLab();
@@ -40,6 +50,9 @@ test('lab reports verified checks vs unsupported controls separately',()=>{
 test('repeatable report evidence fingerprint',()=>{
  assert.equal(runLab({seed:12}).sha256,runLab({seed:12}).sha256);
  assert.notEqual(runLab({seed:12}).sha256,runLab({seed:13}).sha256);
+ const report=runLab({seed:12,includeCases:true});
+ const evidence={seed:report.seed,results:report.cases,categories:report.categories,summary:report.summary};
+ assert.equal(report.sha256,createHash('sha256').update(JSON.stringify(evidence)).digest('hex'));
 });
 test('unbounded lab execution rejected',()=>{
  for(const bad of [0,-1,1001,1.25,NaN,Infinity])assert.throws(()=>runLab({limit:bad}));
@@ -61,6 +74,15 @@ test('TrustDiff detects contraction without false expansion',()=>{
  const r=diffAuthority(after,before);
  assert.deepEqual(r.removed,[{server:'sandbox',tool:'delete_everything'}]);
  assert.equal(r.summary.authorityExpanded,false);
+});
+test('TrustDiff detects expansion even when redacted labels collide',()=>{
+ const sensitive='secret-tool-name',alias=safeLabel(sensitive);
+ const base={...before,allowedTools:{sandbox:[sensitive]}};
+ const current={...before,allowedTools:{sandbox:[alias]}};
+ const result=diffAuthority(base,current);
+ assert.equal(result.summary.authorityExpanded,true);
+ assert.equal(result.summary.added,1);assert.equal(result.summary.removed,1);
+ assert.ok(!JSON.stringify(result).includes(sensitive));
 });
 test('TrustDiff rejects malformed policies and deduplicates entries',()=>{
  assert.throws(()=>diffAuthority({},after));
@@ -110,6 +132,13 @@ test('legacy SSE is inventoried, not marked supported',t=>{
  const path=dir(t);
  writeFileSync(join(path,'.mcp.json'),JSON.stringify({mcpServers:{legacy:{type:'sse',url:'https://example.invalid'}}}));
  const r=compatibilityReport({root:path});assert.equal(r.servers[0].eligibleForBridge,false);
+});
+test('unknown explicit transports are not assumed bridge-compatible',t=>{
+ const path=dir(t);
+ writeFileSync(join(path,'.mcp.json'),JSON.stringify({mcpServers:{unknown:{type:'websocket',url:'https://example.invalid'}}}));
+ const r=compatibilityReport({root:path});
+ assert.equal(r.servers[0].transport,'unknown');assert.equal(r.servers[0].eligibleForBridge,false);
+ assert.match(r.servers[0].warning,/Unrecognized transport/);
 });
 test('compat report never prints credentials',t=>{
  const path=dir(t),secret='FAKE_DEV_TOKEN_DO_NOT_LOG';

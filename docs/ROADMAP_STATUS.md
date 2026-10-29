@@ -1,5 +1,21 @@
 # FARADAY — Estado verificado del roadmap (32 épicas)
 
+## Auditoría local posterior a v0.99.4 (2026-10-29)
+
+- `npm run test:all` completado en Windows y Node 24.22.0: 232 pruebas Node aprobadas, 11 omitidas; 6 pruebas Python aprobadas, 2 omitidas. Las omisiones incluyen limitaciones de ACL y enlaces simbólicos en Windows, no cuentan como pruebas aprobadas.
+- Los 200 casos OAuth firmados son sintéticos y locales. El laboratorio mantiene 650 comprobaciones aprobadas y 350 brechas; `lab:gate` bloquea por esas brechas. El informe de aceptación acotada marca 14/15, con E05 bloqueada por protección ACL no verificada en Windows. Ninguna de las 32 épicas originales se declara cerrada.
+- La auditoría npm en seco inventarió 115 archivos sin hallazgos de sus reglas locales; no es un escaneo integral del repositorio ni una certificación. La configuración Docker se validó sintácticamente, pero el daemon no estaba disponible y no se ejecutó el aislamiento actualizado.
+- Estas pruebas corresponden al árbol de trabajo local, no a una CI multiplataforma ni a una auditoría independiente. Siguen pendientes identidad y aislamiento reales, alta disponibilidad, validación externa y pilotos comerciales.
+
+## Cambios locales posteriores a v0.99.4
+
+- E01/E02: modelo de amenazas y recorrido del piloto aclarados en `agentic/SECURITY.md` y ADR-001. Son documentación interna, no revisión independiente ni servicios separados.
+- E03/E04/E05: el instalador automático rechaza Windows antes de crear backups mientras no se verifiquen sus ACL; `dry-run` y desinstalación siguen disponibles. Revisar y proteger manualmente backups existentes. La auditoría local marca ACL desconocidas y exploraciones incompletas como revisión; la CLI devuelve código no cero ante fallos o revisiones pendientes. `graph prune` permite previsualizar y eliminar explícitamente eventos anteriores a una fecha; no elimina agregados, otros almacenes o backups, ni garantiza borrado físico.
+- E06–E10: el puente HTTP usa la versión confirmada por la inicialización JSON/SSE; no implica conformidad MCP completa. El observador correlaciona cursores y descarta listados parciales erróneos o solapados; esto no acredita causalidad completa. Los tres adaptadores se prueban entre Python y Node con SDKs simulados, no con frameworks reales. Una discrepancia OAuth se rechaza antes de gastar la capacidad y la política se vuelve a evaluar tras la espera externa; las claves fijadas no son identidad atestada ni el filtro es un gateway obligatorio.
+- E11–E15: el piloto exige HTTPS para el backend no local salvo excepción explícita; Docker sintético usa esa excepción y no cifra el tráfico. El Compose configura límites adicionales para gateway y agente, pendientes de prueba con Docker. Las respuestas sin evidencia verificada quedan inciertas y se reconcilian sin repetir la operación; la firma del recibo exige base64url canónico. No hay gateway obligatorio universal, Vault/KMS, sandbox de producción ni prueba de efectos externos.
+- E16–E21: el inspector señala fechas futuras sin reejecutar reservas; la cuota local rechaza retrocesos respecto al último consumo aceptado; quorum requiere claves Ed25519 distintas; parada y auditoría Sentinel son atómicas; TrustDiff compara antes de redactar y TimeMachine rechaza entradas parciales. Siguen sin existir failover distribuido, cuota por tenant, aprobación humana/SSO, SIEM/HA, causalidad real ni replay de workflows reales.
+- Evidencia: el informe de gates no considera aprobados tests TAP omitidos. E05 queda bloqueada en Windows hasta implementar y verificar protección de ACL. Los cambios siguen locales y no sustituyen la regresión completa, CI multiplataforma ni auditoría independiente.
+
 ## Actualización v0.99.4 — Decisiones arquitectónicas A–D (2026-10-29)
 
 **PR #10 fusionada:** https://github.com/jandromani/faraday/pull/10. Commit de merge `310aadb3`. La release establece nuevos límites de arquitectura y gates verificables; **no** cierra nuevas épicas empresariales completas ni certifica seguridad.
@@ -128,6 +144,10 @@
 | E30 | Distribution / DX | Parcial | G: documentación, CLI, npm pack privado, demos; paquete local v0.97 | Npm público, instaladores OS, documentación con pruebas externas, Helm |
 | E31 | Enterprise readiness | **Pendiente** | No hay SSO, despliegue con tenancy, SLA, auditoría externa ni certificaciones | RBAC/SSO, entornos reales, cumplimiento, seguridad independiente |
 | E32 | Commercial validation / launch | **Pendiente** | No hay pilotos de cliente confirmados ni ingresos atribuibles | 3 pilotos, benchmarks competitivos, aceptación, pricing y distribución |
+
+E21–E26, mejoras locales: TimeMachine rechaza políticas alternativas explícitas inválidas. El catálogo de IA gratuita rechaza precios malformados y valores positivos que se redondean a cero; esto no garantiza que el proveedor no cambie sus tarifas. El laboratorio distribuye sus elecciones con los bits altos del generador y su huella incluye los casos; la huella no es una firma. El inventario marca transportes explícitos desconocidos como no verificados; la elegibilidad restante solo describe el tipo de transporte, no valida la configuración ni la conectividad. El corpus de alcance ejecuta 120 mutaciones distintas con reloj controlado. Las brechas indicadas en la tabla permanecen abiertas.
+
+E26–E32, mejoras locales: las mutaciones usan reloj fijo; los microbenchmarks indican calentamiento y método de percentiles; la auditoría de paquete rechaza rutas duplicadas, no canónicas y padres simbólicos; el visor rechaza tokens Unicode inválidos sin excepciones; el comando de pruebas Python admite Windows. La firma de evidencia exige Ed25519 y una raíz propia, pero no demuestra independencia ni preparación empresarial. Para E32 siguen siendo necesarios pilotos consentidos, criterios de aceptación y resultados verificables; no se han acreditado clientes, ingresos ni despliegues comerciales. Estas comprobaciones locales no cierran las épicas.
 
 ## Bloqueantes y secuencia de trabajo
 

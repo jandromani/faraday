@@ -13,8 +13,9 @@ export class GraphStore {
   constructor(path) {
     this.path = resolve(path);
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
-    if(existsSync(this.path) && (!lstatSync(this.path).isFile() || lstatSync(this.path).isSymbolicLink()))
-      throw Error('Unsafe graph database path: refusing symlink or non-file');
+    let existing;
+    try {existing=lstatSync(this.path);} catch(error) {if(error.code!=='ENOENT')throw error;}
+    if(existing && (!existing.isFile() || existing.isSymbolicLink()))throw Error('Unsafe graph database path: refusing symlink or non-file');
     this.db = new DatabaseSync(this.path, { timeout: 5000 });
     if(process.platform !== 'win32') chmodSync(this.path,0o600);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
@@ -141,6 +142,15 @@ export class GraphStore {
   }
   events(limit=100) {
     return this.db.prepare('SELECT * FROM events ORDER BY id DESC LIMIT ?').all(Math.max(1, Math.min(500, limit)));
+  }
+  pruneEventsBefore(before,{apply=false}={}) {
+    if(typeof before!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(before))throw Error('Expected UTC timestamp in ISO format');
+    const time=new Date(before);
+    if(!Number.isFinite(time.getTime())||time.toISOString()!==before||typeof apply!=='boolean')throw Error('Invalid event retention request');
+    const count=this.db.prepare('SELECT COUNT(*) AS n FROM events WHERE ts < ?').get(before).n;
+    if(!apply)return {before,matched:count,deleted:0,applied:false};
+    const deleted=this.db.prepare('DELETE FROM events WHERE ts < ?').run(before).changes;
+    return {before,matched:deleted,deleted,applied:true};
   }
   close() { this.db.close(); }
 }

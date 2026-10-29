@@ -11,7 +11,7 @@ import {LocalBudget} from '../lib/budget.js';
 import {ExecutionJournal} from '../lib/pilot-receipts.js';
 import {DurableSyntheticStore,createDurableSyntheticBackend} from '../lib/pilot-backend.js';
 import {createSecurePilotGateway} from '../lib/pilot-mcp.js';
-const dir=t=>{const d=mkdtempSync(join(tmpdir(),'faraday-operator-'));t.after(()=>rmSync(d,{recursive:true,force:true}));return d;};
+const dir=t=>{const d=mkdtempSync(join(tmpdir(),'faraday-operator-')),resources=[];t.after(()=>{for(const resource of resources)resource.close();rmSync(d,{recursive:true,force:true});});return {d,resources};};
 function approvals(){
  const a=newIdentity(),b=newIdentity(),scope={capability:'capability-1234567890123456789',agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS};
  const bundle=[signApproval({...scope,approver:'finance',privatePem:a.privatePem}),signApproval({...scope,approver:'security',privatePem:b.privatePem})];
@@ -24,6 +24,12 @@ test('E18 two independent signatures and roles are required',()=>{
  assert.throws(()=>verifyApprovals({...a.scope,bundle:a.bundle.slice(0,1),approverKeys:a.keys,quorum:2}));
  assert.throws(()=>verifyApprovals({...a.scope,bundle:[a.bundle[0],a.bundle[0]],approverKeys:a.keys,quorum:2}));
 });
+test('E18 two approver aliases sharing a public key do not satisfy quorum',()=>{
+ const a=approvals();
+ const duplicate=signApproval({...a.scope,approver:'security',privatePem:a.a.privatePem});
+ const keys={...a.keys,security:{publicPem:a.a.publicPem,role:'security'}};
+ assert.throws(()=>verifyApprovals({...a.scope,bundle:[a.bundle[0],duplicate],approverKeys:keys,quorum:2,requiredRoles:['finance','security']}),/duplicate-approver-key/);
+});
 test('E18 consent cannot authorize another agent, resource, capability or arguments',()=>{
  const a=approvals();for(const change of [{agent:'bad'},{resource:'other'},{capability:a.scope.capability+'x'},{args:{...ARGS,amount_cents:1}}])
   assert.throws(()=>verifyApprovals({...a.scope,...change,bundle:a.bundle,approverKeys:a.keys,quorum:2}));
@@ -34,29 +40,44 @@ test('E18 forged signature and expiry are rejected',()=>{
  assert.throws(()=>verifyApprovals({...a.scope,bundle:[fake,a.bundle[1]],approverKeys:a.keys,quorum:2}));
 });
 test('E19 emergency stop persists across two SQLite connections',t=>{
- const path=join(dir(t),'s.sqlite'),a=new LocalSentinel(path);t.after(()=>a.close());
- a.stop(true);const b=new LocalSentinel(path);t.after(()=>b.close());
+ const {d,resources}=dir(t),path=join(d,'s.sqlite'),a=new LocalSentinel(path);resources.push(a);
+ a.stop(true);const b=new LocalSentinel(path);resources.push(b);
  assert.equal(b.isBlocked('dummy'),true);b.stop(false);
  assert.equal(a.isBlocked('dummy'),false);assert.equal(a.verifyChain().verified,true);
 });
+test('E19 stop changes roll back when audit storage fails',t=>{
+ const {d,resources}=dir(t),sentinel=new LocalSentinel(join(d,'s.sqlite'));resources.push(sentinel);
+ sentinel.stop(true);
+ sentinel.db.exec("CREATE TRIGGER reject_control BEFORE INSERT ON events WHEN NEW.kind='control' BEGIN SELECT RAISE(FAIL,'audit unavailable'); END");
+ assert.throws(()=>sentinel.stop(false),/sentinel-storage-unavailable/);
+ assert.equal(sentinel.isStopped(),true);assert.equal(sentinel.verifyChain().verified,true);
+});
 test('E19 denial quarantine and hash-chain mutation detection',t=>{
- const path=join(dir(t),'s.sqlite');let now=10000;const a=new LocalSentinel(path,{threshold:2,now:()=>now,cooldownMs:1000});t.after(()=>a.close());
+ const {d,resources}=dir(t),path=join(d,'s.sqlite');let now=10000;const a=new LocalSentinel(path,{threshold:2,now:()=>now,cooldownMs:1000});resources.push(a);
  a.record('deny','IP-1','invalid-proof');a.record('deny','IP-1','invalid-proof');
  assert.equal(a.isBlocked('IP-1'),true);assert.equal(a.isBlocked('IP-2'),false);now=12000;assert.equal(a.isBlocked('IP-1'),false);
  a.db.exec("UPDATE events SET reason='forged' WHERE seq=1");assert.equal(a.verifyChain().verified,false);
 });
 test('E17 budgets persist and fail closed for exhausted or unknown agents',t=>{
- const path=join(dir(t),'q.sqlite'),limits={[AGENT]:{maxCalls:1,windowMs:60000}};
- const a=new LocalBudget(path,{limits});t.after(()=>a.close());assert.equal(a.consume(AGENT).remaining,0);
- const b=new LocalBudget(path,{limits});t.after(()=>b.close());assert.throws(()=>b.consume(AGENT),/budget-exhausted/);
+ const {d,resources}=dir(t),path=join(d,'q.sqlite'),limits={[AGENT]:{maxCalls:1,windowMs:60000}};
+ const a=new LocalBudget(path,{limits});resources.push(a);assert.equal(a.consume(AGENT).remaining,0);
+ const b=new LocalBudget(path,{limits});resources.push(b);assert.throws(()=>b.consume(AGENT),/budget-exhausted/);
  assert.throws(()=>b.consume('unknown'),/no-budget-policy/);
+ assert.throws(()=>b.consume('constructor'),/no-budget-policy/);
+});
+test('E17 clock rollback cannot reopen an earlier unused window',t=>{
+ const {d,resources}=dir(t),path=join(d,'q.sqlite'),limits={[AGENT]:{maxCalls:1,windowMs:60000}};let time=120000;
+ const first=new LocalBudget(path,{limits,now:()=>time});resources.push(first);first.consume(AGENT);
+ const second=new LocalBudget(path,{limits,now:()=>time});resources.push(second);
+ time=60000;assert.throws(()=>second.consume(AGENT),/budget-clock-rollback/);
+ time=180000;assert.equal(second.consume(AGENT).remaining,0);
 });
 async function listen(t,server){await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>server.close(resolve)));return 'http://127.0.0.1:'+server.address().port;}
 async function gatewaySetup(t){
- const root=dir(t),f=fixture(root),receiptKey=newIdentity(),backendKey=newIdentity(),a=newIdentity(),b=newIdentity();
+ const {d:root,resources}=dir(t),f=fixture(root),receiptKey=newIdentity(),backendKey=newIdentity(),a=newIdentity(),b=newIdentity();
  const journal=new ExecutionJournal(join(root,'j.sqlite')),store=new DurableSyntheticStore(join(root,'b.sqlite'));
  const sentinel=new LocalSentinel(join(root,'s.sqlite'),{threshold:2}),budget=new LocalBudget(join(root,'q.sqlite'),{limits:{[AGENT]:{maxCalls:1,windowMs:60000}}});
- t.after(()=>{f.close();journal.close();store.close();sentinel.close();budget.close();});
+ resources.push(f,journal,store,sentinel,budget);
  const backend=createDurableSyntheticBackend({secret:f.backendSecret,store,attestationPrivatePem:backendKey.privatePem});
  const bk=await listen(t,backend);
  const approvalConfig={approverKeys:{finance:{publicPem:a.publicPem,role:'finance'},security:{publicPem:b.publicPem,role:'security'}},quorum:2,requiredRoles:['finance','security']};

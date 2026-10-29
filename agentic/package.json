@@ -28,7 +28,7 @@
     "release:audit": "node scripts/release-audit.mjs",
     "timemachine:smoke": "node scripts/timemachine-smoke.mjs",
     "benchmark:smoke": "node bin/faraday.js benchmark --iterations 25",
-    "test:python": "PYTHONPATH=python python3 -m unittest discover -s python/tests -v",
+    "test:python": "node scripts/test-python.mjs",
     "workflow": "node bin/faraday.js workflow demo",
     "workflow:eval": "node bin/faraday.js workflow eval --limit 100",
     "mcp:probe:test": "node --test tests/mcp-live-probe.test.js",

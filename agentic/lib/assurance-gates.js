@@ -40,12 +40,14 @@ export function evaluateAssurance(report,{profile='developer',expectedCommit,tru
   const a=report.independentAttestation;
   assert(object(a)&&typeof a.issuer==='string'&&typeof a.signature==='string','invalid attestation');
   assert(typeof a.evidenceDigest==='string'&&a.evidenceDigest===evidenceDigest,'attested evidence digest mismatch');
-  const pem=trustRoots[a.issuer];
+    const pem=Object.hasOwn(trustRoots,a.issuer)?trustRoots[a.issuer]:undefined;
   if(typeof pem==='string'&&canonicalB64(a.signature)){
-   try{independentVerified=verify(null,signableAttestationDigest({issuer:a.issuer,commit:report.commit,evidenceDigest}),createPublicKey(pem),Buffer.from(a.signature,'base64url'));}catch{independentVerified=false;}
+      try{const key=createPublicKey(pem);independentVerified=key.asymmetricKeyType==='ed25519'&&verify(null,signableAttestationDigest({issuer:a.issuer,commit:report.commit,evidenceDigest}),key,Buffer.from(a.signature,'base64url'));}catch{independentVerified=false;}
   }
   if(!independentVerified)failures.push('independent-attestation-invalid');
  }
  if(profile==='enterprise'&&!independentVerified)failures.push('independent-validation-required');
- return Object.freeze({format:ASSURANCE_FORMAT,profile,commit:report.commit,evidenceDigest,independentVerified,checks:report.checks.length,breakdown:kinds,passed:failures.length===0,blockers:[...new Set(failures)],enterpriseReady:profile==='enterprise'&&failures.length===0});
+ return Object.freeze({format:ASSURANCE_FORMAT,profile,commit:report.commit,evidenceDigest,independentVerified,checks:report.checks.length,breakdown:kinds,passed:failures.length===0,blockers:[...new Set(failures)],
+  enterpriseEvidencePassed:profile==='enterprise'&&failures.length===0,enterpriseReady:false,
+  limitation:'Signature verification against caller-supplied roots does not establish auditor independence or enterprise readiness.'});
 }

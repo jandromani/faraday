@@ -29,7 +29,7 @@ import {inspectRecovery} from '../lib/recovery-inspector.js';
 import {ingestAdapterFile} from '../lib/adapter-ingest.js';
 import {runSyntheticWorkflow,runWorkflowEvaluations} from '../lib/workflow-e2e.js';
 import {readWorkflowTrace,verifyWorkflowTrace} from '../lib/workflow-trace.js';
-import {readFileSync} from 'node:fs';
+import {readFileSync,existsSync} from 'node:fs';
 import {writeFileSync, mkdirSync} from 'node:fs';
 
 const appPath = fileURLToPath(import.meta.url);
@@ -43,6 +43,7 @@ Usage:
   faraday adapters ingest --file TRACE.jsonl [--db PATH]
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
   faraday graph [--db PATH] [--format json|mermaid]
+  faraday graph prune --db PATH --before ISO_UTC [--apply]
   faraday proxy --config FILE --server NAME [--db PATH] [--debug-stderr] [--policy FILE]
   faraday bridge --config FILE --server NAME [--db PATH] [--policy FILE]
   faraday hook --config FILE --server NAME [--db PATH]
@@ -94,8 +95,8 @@ function argsOf(args) {
     const t=args[i];
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
-    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion','fail-on-divergence','send-intent','allow-call'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms','file','protocol','timeout-ms','call-tool','max-pages'].includes(key)) throw new Error('Unknown option');
+    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion','fail-on-divergence','send-intent','allow-call','apply'].includes(key)) {out[key]=true;continue;}
+    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms','file','protocol','timeout-ms','call-tool','max-pages','before'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -248,7 +249,7 @@ async function main() {
     if(flags._[0]==='audit'){
       const report=auditWorkspace(flags.root||process.cwd());
       process.stdout.write(JSON.stringify(report,null,2)+'\n');
-      if(report.failures)process.exitCode=2;
+      if(report.failures||report.reviews)process.exitCode=2;
     } else if(flags._[0]==='policy-template'&&flags.server){
       process.stdout.write(JSON.stringify({version:1,mode:'enforce',maxArgumentBytes:8192,allowedTools:{[flags.server]:[]}},null,2)+'\n');
     } else throw Error('Use security audit or policy-template --server NAME');
@@ -320,8 +321,14 @@ async function main() {
       report.warnings.map(w=>`  warning: ${w}\n`).join('')+
       `Graph database: ${fileDB(flags)}\n`);
   } else if (cmd==='graph') {
+    if(flags._[0]==='prune'&&(!flags.db||!flags.before||!existsSync(resolve(flags.db))))throw Error('graph prune requires an existing --db and --before UTC timestamp');
+    if(flags._[0]&&flags._[0]!=='prune')throw Error('Unknown graph subcommand');
     const store=new GraphStore(fileDB(flags));
     try {
+      if(flags._[0]==='prune'){
+        process.stdout.write(JSON.stringify(store.pruneEventsBefore(flags.before,{apply:!!flags.apply}),null,2)+'\n');
+        return;
+      }
       const data=store.snapshot();
       process.stdout.write(flags.format==='mermaid' ? toMermaid(data) : JSON.stringify(data,null,2)+'\n');
     } finally {store.close();}

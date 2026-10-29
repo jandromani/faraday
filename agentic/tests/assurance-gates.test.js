@@ -28,7 +28,14 @@ test('Enterprise requires independent signature from pinned third-party trust ro
  const signature=sign(null,signableAttestationDigest({issuer,commit,evidenceDigest}),privateKey).toString('base64url');
  report.independentAttestation={issuer,evidenceDigest,signature};
  const trustRoots={[issuer]:publicKey.export({type:'spki',format:'pem'})};
- assert.equal(evaluateAssurance(report,{profile:'enterprise',trustRoots}).enterpriseReady,true);
+ const verified=evaluateAssurance(report,{profile:'enterprise',trustRoots});
+ assert.equal(verified.passed,true);assert.equal(verified.enterpriseEvidencePassed,true);assert.equal(verified.enterpriseReady,false);
+ assert.match(verified.limitation,/does not establish auditor independence/);
+ assert.equal(evaluateAssurance(report,{profile:'enterprise',trustRoots:Object.create(trustRoots)}).independentVerified,false);
+ const other=generateKeyPairSync('ed448');
+ const otherSignature=sign(null,signableAttestationDigest({issuer,commit,evidenceDigest}),other.privateKey).toString('base64url');
+ const otherReport={...report,independentAttestation:{issuer,evidenceDigest,signature:otherSignature}};
+ assert.equal(evaluateAssurance(otherReport,{profile:'enterprise',trustRoots:{[issuer]:other.publicKey.export({type:'spki',format:'pem'})}}).independentVerified,false);
  assert.equal(evaluateAssurance(report,{profile:'enterprise',trustRoots:{}}).enterpriseReady,false);
  report.checks[0].id='tampered';assert.throws(()=>evaluateAssurance(report,{profile:'enterprise',trustRoots}),/digest mismatch/);
 });

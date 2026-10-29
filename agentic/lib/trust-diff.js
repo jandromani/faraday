@@ -9,7 +9,7 @@ function edges(p){
   if(server.length>128||!Array.isArray(tools)||tools.length>1000)throw Error('Invalid policy tools');
   for(const tool of tools){
    if(typeof tool!=='string'||tool.length>200||!tool)throw Error('Invalid tool');
-   results.push(JSON.stringify([safeLabel(server),safeLabel(tool)]));
+   results.push(JSON.stringify([server,tool]));
   }
  }
  if(results.length>10000)throw Error('Too many policy entries');
@@ -17,8 +17,8 @@ function edges(p){
 }
 export function diffAuthority(before,after){
  const prev=new Set(edges(before)),next=new Set(edges(after));
- const added=[...next].filter(x=>!prev.has(x)).map(x=>JSON.parse(x)).map(([server,tool])=>({server,tool}));
- const removed=[...prev].filter(x=>!next.has(x)).map(x=>JSON.parse(x)).map(([server,tool])=>({server,tool}));
+ const added=[...next].filter(x=>!prev.has(x)).map(x=>JSON.parse(x)).map(([server,tool])=>({server:safeLabel(server),tool:safeLabel(tool)}));
+ const removed=[...prev].filter(x=>!next.has(x)).map(x=>JSON.parse(x)).map(([server,tool])=>({server:safeLabel(server),tool:safeLabel(tool)}));
  const a=before.maxArgumentBytes??8192,b=after.maxArgumentBytes??8192;
  if(!Number.isSafeInteger(a)||!Number.isSafeInteger(b)||a<32||b<32)throw Error('Invalid maxArgumentBytes');
  return {format:'faraday-trust-diff',version:1,summary:{

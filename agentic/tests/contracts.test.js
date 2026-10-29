@@ -13,7 +13,7 @@ const tool=(inputSchema, outputSchema=null, other={})=>({server:'s',tool:'t',inp
 const snapshot=tools=>({format:'faraday-contract-snapshot',version:1,coverage:'observed-tools-list',tools});
 const schema=(props,required=[])=>normalizeSchema({type:'object',properties:props,required});
 const standaloneEnv={...process.env};delete standaloneEnv.NODE_TEST_CONTEXT;
-const linkLocalPackage=dir=>{const pkgDir=join(dir,'node_modules','@faraday');mkdirSync(pkgDir,{recursive:true});symlinkSync(resolve('.'),join(pkgDir,'agentic'),'dir');};
+const linkLocalPackage=dir=>{const pkgDir=join(dir,'node_modules','@faraday');mkdirSync(pkgDir,{recursive:true});symlinkSync(resolve('.'),join(pkgDir,'agentic'),process.platform==='win32'?'junction':'dir');};
 const launch=(args,cwd)=>spawnSync(process.execPath,[resolve('bin/faraday.js'),...args],{cwd,encoding:'utf8',timeout:8000});
 
 test('contract normalization eliminates descriptions, defaults, enum literals, credentials and examples',()=>{
@@ -103,12 +103,15 @@ test('init --dry-run does not write and init is idempotent',t=>{
   assert.equal(readFileSync(join(dir,'.gitignore'),'utf8').match(/\.faraday\//g).length,1);
   const health=doctor({root:dir});assert.ok(health.ready);assert.equal(health.servers.length,1);
 });
-test('init refuses unsafe symlinked .faraday and .gitignore',t=>{
+test('init refuses unsafe linked .faraday directory',t=>{
   const dir=workspace(t),outside=workspace(t);
-  symlinkSync(outside,join(dir,'.faraday'));
+  symlinkSync(outside,join(dir,'.faraday'),process.platform==='win32'?'junction':'dir');
   assert.throws(()=>initialize({root:dir}),/Unsafe/);
-  rmSync(join(dir,'.faraday'));writeFileSync(join(outside,'ignore'),'#unsafe');
-  symlinkSync(join(outside,'ignore'),join(dir,'.gitignore'));
+});
+test('init refuses unsafe symlinked .gitignore',t=>{
+  const dir=workspace(t),outside=workspace(t);
+  writeFileSync(join(outside,'ignore'),'#unsafe');
+  try{symlinkSync(join(outside,'ignore'),join(dir,'.gitignore'));}catch(error){if(process.platform==='win32'&&error.code==='EPERM'){t.skip('Windows account cannot create symbolic links');return;}throw error;}
   assert.throws(()=>initialize({root:dir}),/Unsafe/);
 });
 test('CLI doctor output never reveals config env values',t=>{
@@ -140,4 +143,23 @@ test('observer paged tools/list does not prematurely remove contracts',t=>{
     assert.ok(!JSON.stringify(snapshotFromStore(store)).includes('sensitive-page-cursor'));
     store.close();
   });
+});
+test('observer discards mismatched cursors and stale overlapping listings',async t=>{
+  const dir=workspace(t),store=new GraphStore(join(dir,'graph.sqlite'));
+  try{
+  store.replaceContracts('test',[{name:'existing',inputSchema:{type:'object'}}]);
+  const {McpObserver}=await import('../lib/observe.js'),observer=new McpObserver(store,'test');
+  const request=(id,cursor)=>observer.consume(JSON.stringify({jsonrpc:'2.0',id,method:'tools/list',...(cursor===undefined?{}:{params:{cursor}})}),'client_to_server');
+  const response=(id,name,nextCursor)=>observer.consume(JSON.stringify({jsonrpc:'2.0',id,result:{tools:[{name,inputSchema:{type:'object'}}],...(nextCursor===undefined?{}:{nextCursor})}}),'server_to_client');
+  request(1);response(1,'first','expected');request(2,'different');response(2,'wrong');
+  assert.deepEqual(store.contracts().map(x=>x.tool),['existing']);
+  request(6);response(6,'first','expected');request(7,'expected');
+  observer.consume(JSON.stringify({jsonrpc:'2.0',id:7,error:{code:-32603,message:'failed'}}),'server_to_client');
+  request(8,'expected');response(8,'late');
+  assert.deepEqual(store.contracts().map(x=>x.tool),['existing']);
+  request(3);request(4);response(4,'new','next');response(3,'stale');
+  assert.deepEqual(store.contracts().map(x=>x.tool),['existing']);
+  request(5,'next');response(5,'final');
+  assert.deepEqual(store.contracts().map(x=>x.tool),['final','new']);
+  }finally{store.close();}
 });

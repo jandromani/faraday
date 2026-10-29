@@ -21,6 +21,11 @@ test('E21 policy restriction changes trace without performing a tool call',()=>{
   assert.ok(result.divergences.some(y=>y.was==='applied'&&y.now==='denied'));
   assert.equal(result.mode,'offline-no-effects');
 });
+test('E21 explicitly invalid replay policies are rejected instead of using the original',()=>{
+  const trace=captureSynthetic();
+  for(const policy of [null,false,0,''])assert.throws(()=>replaySynthetic(trace,{policy}),/Invalid TimeMachine object/);
+  assert.equal(replaySynthetic(trace).summary.divergences,0);
+});
 test('E21 corrupted recorded outcome rejects even with a recomputed but inconsistent claim',()=>{
   const x=captureSynthetic();x.steps[0].outcome='applied';assert.throws(()=>verifyTrace(x),/chain corruption/);
 });
@@ -37,17 +42,29 @@ test('E21 policies have exact role/tool/resource/action scopes with validation',
   assert.throws(()=>captureSynthetic({policy:{allow:[]},intents:[{id:'x',agent:'a',tool:'t',resource:'r',op:'read',key:'k',value:100}]}),/Read intent/);
   assert.throws(()=>captureSynthetic({seed:-1}),/Invalid synthetic seed/);
 });
+test('E21 rejects partial custom inputs instead of silently replaying the fixture',()=>{
+  const fixture=syntheticFixture();
+  assert.throws(()=>captureSynthetic({policy:fixture.policy}),/must be provided together/);
+  assert.throws(()=>captureSynthetic({intents:fixture.intents}),/must be provided together/);
+  assert.throws(()=>captureSynthetic({seed:-1,policy:fixture.policy,intents:fixture.intents}),/Invalid synthetic seed/);
+  assert.equal(captureSynthetic({policy:{allow:[]},intents:[]}).steps.length,0);
+});
 test('E21 detects conflicting repeated operation IDs',()=>{
   const f=syntheticFixture();f.intents.push({...f.intents.at(-3),value:1,id:'fixture-20'});
   const x=captureSynthetic({policy:f.policy,intents:f.intents});assert.equal(x.steps.at(-1).outcome,'idempotency-conflict');
 });
-test('E21 local files reject symlinks and accept only expected schemas',t=>{
-  const d=temp(t),p=join(d,'trace.json'),link=join(d,'link.json'),policy=join(d,'policy.json');
-  const x=captureSynthetic();writeFileSync(p,JSON.stringify(x));symlinkSync(p,link);
+test('E21 local files accept only expected schemas',t=>{
+  const d=temp(t),p=join(d,'trace.json'),policy=join(d,'policy.json');
+  const x=captureSynthetic();writeFileSync(p,JSON.stringify(x));
   assert.equal(readSyntheticTrace(p).rootHash,x.rootHash);
-  assert.throws(()=>readSyntheticTrace(link),/Unsafe trace file/);
   writeFileSync(policy,JSON.stringify(x.policy));assert.equal(readReplayPolicy(policy).allow.length,4);
   writeFileSync(policy,JSON.stringify({...x.policy,evil:true}));assert.throws(()=>readReplayPolicy(policy),/Invalid TimeMachine object/);
+});
+test('E21 local files reject symlinks',t=>{
+  const d=temp(t),p=join(d,'trace.json'),link=join(d,'link.json');
+  writeFileSync(p,JSON.stringify(captureSynthetic()));
+  try{symlinkSync(p,link);}catch(error){if(process.platform==='win32'&&error.code==='EPERM'){t.skip('Windows account cannot create symbolic links');return;}throw error;}
+  assert.throws(()=>readSyntheticTrace(link),/Unsafe trace file/);
 });
 test('E21 actual replay never invokes network or filesystem effectors',()=>{
   const original=globalThis.fetch;

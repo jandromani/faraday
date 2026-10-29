@@ -14,11 +14,14 @@ const MAX_PROMPT_CHARS = 12_000;
 const MAX_HTTP_BYTES = 2_000_000;
 const MAX_OUTPUT_TOKENS = 650;
 const ZERO_PRICE_FIELDS = ['prompt', 'completion', 'request', 'image', 'audio', 'web_search', 'input_cache_read', 'input_cache_write'];
+const zeroPrice=value=>typeof value==='number'?Number.isFinite(value)&&value===0:
+  typeof value==='string'&&/^[+\-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+\-]?\d+)?$/.test(value)&&
+  !/[1-9]/.test(value.split(/[eE]/)[0]);
 
 export function isEligibleFreeModel(model) {
   if (!model || typeof model.id !== 'string' ||
       !(model.id === DEFAULT_MODEL || model.id.endsWith(':free')) ||
-      !model.pricing || typeof model.pricing !== 'object') return false;
+      !model.pricing || typeof model.pricing !== 'object' || Array.isArray(model.pricing)) return false;
   if (model.architecture && Array.isArray(model.architecture.output_modalities) &&
       !model.architecture.output_modalities.includes('text')) return false;
   if (model.architecture && Array.isArray(model.architecture.input_modalities) &&
@@ -26,12 +29,13 @@ export function isEligibleFreeModel(model) {
   // Extra pricing fields with positive values are disallowed as well.
   for (const [k, v] of Object.entries(model.pricing)) {
     if (k === 'overrides') {
-      if (Array.isArray(v) && v.some(x=>Object.values(x).some(p=>p!==null && Number(p)!==0))) return false;
+      if (v!==null && (!Array.isArray(v) || v.some(x=>!x||typeof x!=='object'||Array.isArray(x)||
+          !Object.keys(x).length||Object.values(x).some(p=>p!==null && !zeroPrice(p))))) return false;
     } else if (typeof v === 'string' || typeof v === 'number') {
-      if (!Number.isFinite(Number(v)) || Number(v) !== 0) return false;
+      if (!zeroPrice(v)) return false;
     } else if (v !== null) return false;
   }
-  return ZERO_PRICE_FIELDS.every(k=>model.pricing[k] == null || Number(model.pricing[k]) === 0) &&
+  return ZERO_PRICE_FIELDS.every(k=>model.pricing[k] == null || zeroPrice(model.pricing[k])) &&
     model.pricing.prompt != null && model.pricing.completion != null;
 }
 

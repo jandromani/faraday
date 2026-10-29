@@ -20,6 +20,19 @@ test('accept only explicitly free models with zero prices',()=>{
   assert.equal(isEligibleFreeModel({...specific,id:'mystery-model'}),false);
   assert.equal(isEligibleFreeModel({...specific,architecture:{input_modalities:['image'],output_modalities:['image']}}),false);
 });
+test('malformed or underflowing prices are never treated as free',async()=>{
+  const invalid=[{prompt:'',completion:'0'},{prompt:'  ',completion:'0'},{prompt:'1e-9999',completion:'0'},
+    {prompt:'0',completion:'0',overrides:{}},{prompt:'0',completion:'0',overrides:[null]},
+    {prompt:'0',completion:'0',overrides:[{request:''}]}];
+  for(const pricing of invalid){
+    assert.equal(isEligibleFreeModel({...specific,pricing}),false);
+    const calls=[];
+    await assert.rejects(explainFree({metadata:{},consent:true,apiKey:'fake',model:specific.id,
+      fetchImpl:async(_url,options)=>{calls.push(options.method);return fakeres({data:[{...specific,pricing}]});}}),/not verified free/);
+    assert.deepEqual(calls,['GET']);
+  }
+  assert.equal(isEligibleFreeModel({...specific,pricing:{prompt:'0.000e-20',completion:0}}),true);
+});
 
 test('catalog filter excludes paid models and non-text modalities',async()=>{
   const models=await fetchFreeModels({fetchImpl:async()=>fakeres({data:[free,paid,specific,{...specific,id:'audio/free:free',architecture:{input_modalities:['audio'],output_modalities:['audio']}}]})});

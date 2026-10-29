@@ -51,6 +51,7 @@ export function installProxy({configFile,server,db,binPath,nodePath,dryRun=false
   const {dir,file}=targetFile(path,server);
   if(existsSync(file))throw Error('Already installed; use uninstall before reinstall');
   if(dryRun) return {server,config:path,transport,command,changed:false,dryRun:true};
+  if(process.platform==='win32')throw Error('Auto-install unavailable on Windows: backup ACL protection is not verified; use dry-run or manual configuration');
   const parent=join(dirname(path),'.faraday');
   for (const check of [parent,dir]) {
     if (existsSync(check) && (lstatSync(check).isSymbolicLink() || !lstatSync(check).isDirectory()))

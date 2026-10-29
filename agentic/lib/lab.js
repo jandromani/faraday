@@ -29,10 +29,11 @@ export function generateScenarios(seed=42){
  if(!Number.isSafeInteger(seed)||seed<0||seed>0xffffffff)throw Error('Invalid lab seed');
  let state=seed>>>0;
  const rand=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state;};
+ const choose=count=>Math.floor(rand()/0x100000000*count);
  const rows=[];
  for(const [category,count] of Object.entries(DISTRIBUTION))for(let i=0;i<count;i++){
-  const agent=DUMMY_AGENTS[rand()%DUMMY_AGENTS.length].id;
-  rows.push({id:category+'-'+String(i+1).padStart(4,'0'),category,agent,variant:rand()%10000,
+  const agent=DUMMY_AGENTS[choose(DUMMY_AGENTS.length)].id;
+  rows.push({id:category+'-'+String(i+1).padStart(4,'0'),category,agent,variant:choose(10000),
    expected:category==='legitimate'?'allow':(['authorization','ssrf','contracts'].includes(category)?'deny':'unimplemented')});
  }
  return rows;
@@ -60,7 +61,7 @@ export function runLab({seed=42,limit=1000,includeCases=false}={}){
   const key=r.status==='pass'?'passed':r.status==='fail'?'failed':'gaps';
   summary[key]++;const c=categories[r.category]??={total:0,passed:0,failed:0,gaps:0};c.total++;c[key]++;
  }
- const sha256=createHash('sha256').update(JSON.stringify({seed,categories,summary})).digest('hex');
+ const sha256=createHash('sha256').update(JSON.stringify({seed,results,categories,summary})).digest('hex');
  return {format:'faraday-lab-evaluation',version:1,release:'0.8.0',mode:'offline-synthetic',
   seed,agents:DUMMY_AGENTS.length,summary,categories,sha256,
   findings:results.filter(x=>x.status!=='pass').slice(0,12).map(x=>({id:x.id,status:x.status,reason:x.reason||'Unexpected result'})),

@@ -17,7 +17,7 @@ for(const line of reportText.split(/\r?\n/)){
  const match=line.match(/^(ok|not ok)\s+\d+\s+-\s+\[(E\d\d)\]/);
  if(!match)continue;
  if(status.has(match[2]))throw Error('Duplicate acceptance gate '+match[2]);
- status.set(match[2],match[1]==='ok');
+ status.set(match[2],match[1]==='ok'&&!/#\s*(?:SKIP|TODO)\b/i.test(line));
 }
 const checks=manifest.candidates.map(c=>({id:c.id,scope:c.scope,track:c.track,acceptancePass:status.get(c.id)===true,
  status:status.get(c.id)===true?'scoped-acceptance-passed':'blocked',enterpriseClosed:false,

@@ -2,9 +2,11 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {PassThrough} from 'node:stream';
 import {createServer} from 'node:http';
-import {mkdtempSync,writeFileSync,rmSync,chmodSync,mkdirSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,rmSync,chmodSync,mkdirSync,symlinkSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {forbiddenIp,validatedMcpUrl,pinnedAddress,secureMcpFetch} from '../lib/egress-guard.js';
 import {ToolPolicy,loadToolPolicy} from '../lib/security-policy.js';
 import {auditWorkspace} from '../lib/security-audit.js';
@@ -67,8 +69,38 @@ test('shield HTTP bridge denies before contacting remote endpoint',async t=>{
   assert.equal(JSON.parse(emitted[0]).error.code,-32003);
   await bridge.close();
 });
-test('shield local posture audit flags overpermissive private directory',t=>{
-  if(process.platform==='win32')return;
+test('shield local posture audit flags overpermissive private directory',{skip:process.platform==='win32'?'POSIX modes do not verify Windows ACLs':false},t=>{
   const dir=workspace(t);mkdirSync(join(dir,'.faraday'));chmodSync(join(dir,'.faraday'),0o755);
   assert.ok(auditWorkspace(dir).failures>0);
+});
+test('shield local posture audit does not treat unknown Windows ACLs as safe',{skip:process.platform!=='win32'},t=>{
+  const dir=workspace(t),privateDir=join(dir,'.faraday'),backups=join(privateDir,'targets');
+  mkdirSync(backups,{recursive:true});writeFileSync(join(privateDir,'graph.sqlite'),'');writeFileSync(join(backups,'backup.json'),'{}');
+  const report=auditWorkspace(dir);
+  for(const name of ['private-data-directory','graph-database','config-backup-directory']){
+    const check=report.checks.find(item=>item.name===name);assert.equal(check.status,'review');assert.match(check.detail,/ACL not verified/);
+  }
+  assert.equal(report.overall,'review-required');assert.ok(report.reviews>=3);
+});
+test('shield audit CLI returns nonzero when review is required',t=>{
+  const dir=workspace(t),cli=fileURLToPath(new URL('../bin/faraday.js',import.meta.url));
+  const result=spawnSync(process.execPath,[cli,'security','audit','--root',dir],{encoding:'utf8'});
+  assert.ifError(result.error);assert.equal(result.status,2,result.stderr);
+  const report=JSON.parse(result.stdout);assert.equal(report.overall,'review-required');assert.ok(report.reviews>0);
+});
+test('shield audit rejects a dangling private directory link',t=>{
+  const dir=workspace(t);
+  try{symlinkSync(join(dir,'missing'),join(dir,'.faraday'),process.platform==='win32'?'junction':'dir');}
+  catch(error){if(process.platform==='win32'&&error.code==='EPERM'){t.skip('Windows account cannot create symbolic links');return;}throw error;}
+  const report=auditWorkspace(dir);
+  assert.equal(report.checks.find(item=>item.name==='private-data-directory').status,'fail');
+  assert.equal(report.overall,'needs-attention');
+});
+test('shield audit reports when backup inspection exceeds its limit',t=>{
+  const dir=workspace(t),backups=join(dir,'.faraday','targets');mkdirSync(backups,{recursive:true});
+  if(process.platform!=='win32')chmodSync(backups,0o700);
+  for(let index=0;index<501;index++)writeFileSync(join(backups,String(index)),'',{mode:0o600});
+  const report=auditWorkspace(dir);
+  assert.ok(report.checks.some(item=>item.name==='private-backup-file'&&item.status==='review'&&/500/.test(item.detail)));
+  assert.notEqual(report.overall,'no-local-issues-detected');
 });

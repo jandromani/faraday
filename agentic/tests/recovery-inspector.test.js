@@ -25,8 +25,24 @@ test('E16 completed operations are counted but not proposed for replay',t=>{
   const x=setup(t);x.journal.reserve('test-complete','c'.repeat(64));x.journal.finish('test-complete','simulated',{});
   assert.equal(inspectRecovery({path:x.path}).summary.completed,1);assert.equal(inspectRecovery({path:x.path}).operations.length,0);x.journal.close();
 });
-test('E16 prevents symlink journal and invalid stale thresholds',t=>{
-  const x=setup(t),link=join(x.dir,'link.sqlite');symlinkSync(x.path,link);
-  assert.throws(()=>inspectRecovery({path:link}),/Unsafe recovery journal/);
-  assert.throws(()=>inspectRecovery({path:x.path,staleAfterMs:-1}),/Invalid recovery inspection/);x.journal.close();
+test('E16 future timestamps are flagged instead of treated as fresh reservations',t=>{
+  const x=setup(t);
+  try{
+    x.journal.reserve('test-clock','c'.repeat(64));
+    const ts=x.journal.db.prepare('SELECT created_at FROM executions').get().created_at;
+    const report=inspectRecovery({path:x.path,now:ts-1});
+    assert.equal(report.summary.clockAnomalies,1);assert.equal(report.summary.freshReserved,0);
+    assert.equal(report.operations[0].ageMs,null);assert.equal(report.operations[0].operatorAction,'investigate-clock-before-retrying');
+    assert.equal(x.journal.get('test-clock').state,'reserved');
+  }finally{x.journal.close();}
+});
+test('E16 rejects invalid stale thresholds',t=>{
+  const x=setup(t);try{assert.throws(()=>inspectRecovery({path:x.path,staleAfterMs:-1}),/Invalid recovery inspection/);}finally{x.journal.close();}
+});
+test('E16 prevents symlink journal',t=>{
+  const x=setup(t),link=join(x.dir,'link.sqlite');
+  try{
+    try{symlinkSync(x.path,link);}catch(error){if(process.platform==='win32'&&error.code==='EPERM'){t.skip('Windows account cannot create symbolic links');return;}throw error;}
+    assert.throws(()=>inspectRecovery({path:link}),/Unsafe recovery journal/);
+  }finally{x.journal.close();}
 });

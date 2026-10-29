@@ -1,5 +1,5 @@
 /** FARADAY pilot: offline Ed25519 approvals; no private approver key in gateway. */
-import {createPrivateKey,createPublicKey,sign,verify} from 'node:crypto';
+import {createHash,createPrivateKey,createPublicKey,sign,verify} from 'node:crypto';
 import {AuthorityError,canonical,digest} from './authority.js';
 const PREFIX=Buffer.from('FARADAY-APPROVAL-0.96\0');
 const validText=s=>typeof s==='string'&&s.length>0&&s.length<=160;
@@ -13,7 +13,7 @@ export function signApproval({approver,privatePem,capability,agent,tool,resource
 }
 export function verifyApprovals({bundle,approverKeys,capability,agent,tool,resource,action,args,now=Math.floor(Date.now()/1000),quorum=2,requiredRoles=[]}){
  if(!Array.isArray(bundle)||!Number.isSafeInteger(quorum)||quorum<1||quorum>12||bundle.length<quorum||bundle.length>12||!approverKeys||typeof approverKeys!=='object'||!Array.isArray(requiredRoles))throw new AuthorityError('approvals-required');
- const seen=new Set(),roles=new Set();
+ const seen=new Set(),seenKeys=new Set(),roles=new Set();
  for(const approval of bundle){
   if(!exactKeys(approval,['claims','signature'])||!exactKeys(approval.claims,expected))throw new AuthorityError('invalid-approval');
   const c=approval.claims;
@@ -22,8 +22,15 @@ export function verifyApprovals({bundle,approverKeys,capability,agent,tool,resou
   if(!pub||typeof approval.signature!=='string'||!/^[A-Za-z0-9_-]{80,120}$/.test(approval.signature))throw new AuthorityError('invalid-approval-signature');
   const bytes=Buffer.from(approval.signature,'base64url');
   if(bytes.toString('base64url')!==approval.signature)throw new AuthorityError('noncanonical-approval-signature');
-  let ok=false;try{ok=verify(null,envelope(c),createPublicKey(pub),bytes);}catch{}
+    let ok=false,key,keyFingerprint;try{
+     key=createPublicKey(pub);
+     if(key.asymmetricKeyType!=='ed25519')throw Error('invalid key type');
+     keyFingerprint=createHash('sha256').update(key.export({format:'der',type:'spki'})).digest('hex');
+     ok=verify(null,envelope(c),key,bytes);
+    }catch{}
   if(!ok)throw new AuthorityError('invalid-approval-signature');
+    if(seenKeys.has(keyFingerprint))throw new AuthorityError('duplicate-approver-key');
+    seenKeys.add(keyFingerprint);
   seen.add(c.approver);
   const role=typeof identity==='string'?undefined:identity?.role;if(role)roles.add(role);
  }
