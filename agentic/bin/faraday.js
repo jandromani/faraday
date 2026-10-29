@@ -26,6 +26,7 @@ import {readKeyFile} from '../lib/authority.js';
 import {captureSynthetic,readSyntheticTrace,replaySynthetic,diffSynthetic,readReplayPolicy} from '../lib/timemachine.js';
 import {runBenchmarks} from '../lib/benchmarks.js';
 import {inspectRecovery} from '../lib/recovery-inspector.js';
+import {createSignedJournalBackup,verifySignedJournalBackup,restoreVerifiedJournalBackup} from '../lib/journal-backup.js';
 import {ingestAdapterFile} from '../lib/adapter-ingest.js';
 import {runSyntheticWorkflow,runWorkflowEvaluations} from '../lib/workflow-e2e.js';
 import {readWorkflowTrace,verifyWorkflowTrace} from '../lib/workflow-trace.js';
@@ -78,6 +79,9 @@ Usage:
   faraday timemachine diff --base FILE --current FILE
   faraday benchmark [--iterations 200] [--out FILE]
   faraday recovery inspect --db JOURNAL [--stale-ms 60000]
+  faraday recovery backup --db JOURNAL --out BACKUP --private-key KEY
+  faraday recovery verify --backup-file BACKUP --public-key KEY
+  faraday recovery restore --backup-file BACKUP --out NEW_JOURNAL --public-key KEY
   faraday demo
   faraday security policy-template --server NAME [--json]
   faraday security audit [--root PATH] [--json]
@@ -96,7 +100,7 @@ function argsOf(args) {
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
     if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion','fail-on-divergence','send-intent','allow-call','apply'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms','file','protocol','timeout-ms','call-tool','max-pages','before'].includes(key)) throw new Error('Unknown option');
+    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms','file','protocol','timeout-ms','call-tool','max-pages','before','backup-file','expected-sha256','min-created-at'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -149,8 +153,28 @@ async function main() {
     if(flags.out)writeFileSync(resolve(flags.out),JSON.stringify(report,null,2)+'\n',{mode:0o600,flag:'wx'});
     process.stdout.write(JSON.stringify(report,null,2)+'\n');
   } else if(cmd==='recovery'){
-    if(flags._[0]!=='inspect'||!flags.db)throw Error('recovery inspect requires --db JOURNAL');
-    process.stdout.write(JSON.stringify(inspectRecovery({path:resolve(flags.db),staleAfterMs:flags['stale-ms']===undefined?60000:Number(flags['stale-ms'])}),null,2)+'\n');
+    let report;const action=flags._[0];
+    if(action==='inspect'){
+      if(!flags.db)throw Error('recovery inspect requires --db JOURNAL');
+      report=inspectRecovery({path:resolve(flags.db),staleAfterMs:flags['stale-ms']===undefined?60000:Number(flags['stale-ms'])});
+    }else if(action==='backup'){
+      if(!flags.db||!flags.out||!flags['private-key'])throw Error('recovery backup requires --db, --out and --private-key');
+      report=await createSignedJournalBackup({journalPath:resolve(flags.db),backupPath:resolve(flags.out),
+        privatePem:readKeyFile(resolve(flags['private-key']),{privateKey:true})});
+    }else if(action==='verify'){
+      if(!flags['backup-file']||!flags['public-key'])throw Error('recovery verify requires --backup-file and --public-key');
+      report=verifySignedJournalBackup({backupPath:resolve(flags['backup-file']),
+        receiptPath:flags.receipt?resolve(flags.receipt):undefined,
+        publicPem:readKeyFile(resolve(flags['public-key']),{privateKey:false}),
+        expectedSha256:flags['expected-sha256'],minCreatedAt:flags['min-created-at']===undefined?undefined:Number(flags['min-created-at'])});
+    }else if(action==='restore'){
+      if(!flags['backup-file']||!flags['public-key']||!flags.out)throw Error('recovery restore requires --backup-file, --out and --public-key');
+      report=restoreVerifiedJournalBackup({backupPath:resolve(flags['backup-file']),restorePath:resolve(flags.out),
+        receiptPath:flags.receipt?resolve(flags.receipt):undefined,
+        publicPem:readKeyFile(resolve(flags['public-key']),{privateKey:false}),
+        expectedSha256:flags['expected-sha256'],minCreatedAt:flags['min-created-at']===undefined?undefined:Number(flags['min-created-at'])});
+    }else throw Error('Use recovery inspect|backup|verify|restore');
+    process.stdout.write(JSON.stringify(report,null,2)+'\n');
   } else if(cmd==='sentinel'){
     if(!flags.db)throw Error('sentinel requires --db PATH of the running gateway');
     const sentinel=new LocalSentinel(resolve(flags.db));

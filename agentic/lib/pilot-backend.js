@@ -37,12 +37,15 @@ export class DurableSyntheticStore {
   count(){return this.db.prepare('SELECT count(*) AS n FROM synthetic_actions').get().n;}
   close(){this.db.close();}
 }
-export function createDurableSyntheticBackend({secret,store,attestationPrivatePem}){
-  if(typeof secret!=='string'||secret.length<32||!store||typeof store.apply!=='function'||!attestationPrivatePem)throw Error('Synthetic backend requires secret, durable store and independent signing key');
+export function createDurableSyntheticBackend({secret,secretProvider=null,store,attestationPrivatePem}){
+  if(((!secretProvider && (typeof secret!=='string'||secret.length<32)) || (secretProvider && typeof secretProvider!=='function'))||!store||typeof store.apply!=='function'||!attestationPrivatePem)throw Error('Synthetic backend requires secret, durable store and independent signing key');
   return http.createServer(async(req,res)=>{
     if(req.url==='/healthz'&&req.method==='GET')return respond(res,200,{status:'ok'});
     if(!['/internal/execute','/internal/status'].includes(req.url)||req.method!=='POST')return respond(res,404,{error:'not-found'});
-    if(req.headers.authorization!==`Bearer ${secret}`)return respond(res,401,{error:'unauthorized'});
+    let currentSecret;
+    try{currentSecret=secretProvider?await secretProvider():secret;}catch{return respond(res,503,{error:'credential-unavailable'});}
+    if(typeof currentSecret!=='string'||currentSecret.length<32)return respond(res,503,{error:'credential-unavailable'});
+    if(req.headers.authorization!==`Bearer ${currentSecret}`)return respond(res,401,{error:'unauthorized'});
     try{
       const body=await readJson(req);
       if(req.url==='/internal/status'){
