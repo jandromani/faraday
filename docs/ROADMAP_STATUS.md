@@ -1,5 +1,15 @@
 # FARADAY — Estado verificado del roadmap (32 épicas)
 
+## Actualización v0.99.5 — revocación, rotación y evidencias testificadas (2026-10-29)
+
+- **E09/E10:** `LocalOAuthRevocations` opt-in por `jti`, `sub` y `client_id`, SQLite persistente y comprobación efectiva por solicitud HTTP; ausencia de `jti` o fallo del registro deniega. `PinnedOAuthResource.replacePublicJwks` sustituye de forma atómica un conjunto validado de claves **cuando un operador invoca la API**. Sin IdP ni revocación distribuida.
+- **E12:** lectura estricta de secreto de backend mediante archivos 0600 re-leídos por gateway y backend. Test end-to-end demuestra discrepancia de credenciales → denegación y estado incierto, replay impedido, y una capacidad nueva funciona tras rotación sin reiniciar. **No hay Vault, KMS ni broker de credenciales efímeras.**
+- **E14:** nuevo checkpoint de recibos de gateway y atestaciones de backend sintéticas, cadena de digests y firma de testigo Ed25519 con raíz de confianza suministrada aparte. Comprueba adulteración/reordenación/truncado y opcionalmente raíz esperada para detectar replay de checkpoints antiguos. **No existe aún testigo independiente integrado ni custodia offsite real.**
+- **E15/E16:** prueba integrada de rotación equivocada y no-replay de capacidades; no es HA, failover, ni reconciliación distribuida.
+- **Calidad:** suite Node local original ampliada a 243 pruebas antes del último test E2E de recuperación; CI adicional `trust-controls.yml` en Linux Node 22/24, macOS 24 y Windows 24. Su aprobación se registra separadamente en Actions.
+- **Clasificación:** todos son **avances parciales de Developer Preview**. Ninguna de las 32 épicas originales se cierra con este cambio y no se alteran cifras VC sin evidencia externa. Documentación: `agentic/docs/V0995_TRUST_HARDENING.md`.
+
+
 ## Actualización v0.99.4 — Decisiones arquitectónicas A–D (2026-10-29)
 
 **PR #10 fusionada:** https://github.com/jandromani/faraday/pull/10. Commit de merge `310aadb3`. La release establece nuevos límites de arquitectura y gates verificables; **no** cierra nuevas épicas empresariales completas ni certifica seguridad.

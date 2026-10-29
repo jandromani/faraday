@@ -31,3 +31,32 @@ test('real backend enforces rotated credential and never returns secret in respo
  assert.equal((await req(secretB)).status,404);
  assert.equal((await req(secretB)).text.includes(secretB),false);
 });
+
+test('gateway/backend secret mismatch preserves fail-closed journal and a fresh capability succeeds after rotation',async t=>{
+ const {fixture,AGENT,ARGS,TOOL,RESOURCE,ACTION}=await import('../lib/authority-fixture.js');
+ const {createIntent,createExecution}=await import('../lib/authority.js');
+ const {createSecurePilotGateway}=await import('../lib/pilot-mcp.js');
+ const {ExecutionJournal}=await import('../lib/pilot-receipts.js');
+ const root=mkdtempSync(join(tmpdir(),'faraday-secret-gateway-'));t.after(()=>rmSync(root,{recursive:true,force:true}));
+ const gFile=join(root,'gateway-secret'),bFile=join(root,'backend-secret');
+ writeFileSync(gFile,secretA,{mode:0o600});writeFileSync(bFile,secretA,{mode:0o600});
+ const f=fixture(root),journal=new ExecutionJournal(join(root,'journal.sqlite')),store=new DurableSyntheticStore(join(root,'backend.sqlite'));
+ t.after(()=>{f.close();journal.close();store.close();});
+ const gatewayKey=newIdentity(),backendKey=newIdentity();
+ const backend=createDurableSyntheticBackend({secretProvider:createStrictSecretFileProvider(bFile),store,attestationPrivatePem:backendKey.privatePem});
+ await new Promise(r=>backend.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>backend.close(r)));
+ const backendUrl=`http://127.0.0.1:${backend.address().port}/internal/execute`;
+ const gateway=createSecurePilotGateway({gate:f.gate,backendUrl,backendSecretProvider:createStrictSecretFileProvider(gFile),journal,receiptPrivatePem:gatewayKey.privatePem,backendPublicPem:backendKey.publicPem});
+ await new Promise(r=>gateway.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>gateway.close(r)));
+ const url=`http://127.0.0.1:${gateway.address().port}/mcp`;
+ const call=(capability,proof)=>fetch(url,{method:'POST',headers:{'content-type':'application/json','mcp-protocol-version':'2026-07-28','mcp-method':'tools/call','mcp-name':TOOL,
+  'x-faraday-capability':capability,'x-faraday-proof':Buffer.from(JSON.stringify(proof)).toString('base64url')},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:TOOL,arguments:ARGS,_meta:{'io.modelcontextprotocol/protocolVersion':'2026-07-28'}}})});
+ writeFileSync(bFile,secretB,{mode:0o600});
+ assert.equal((await call(f.capability,f.proof)).status,503);assert.equal(store.count(),0);
+ writeFileSync(gFile,secretB,{mode:0o600});
+ assert.equal((await call(f.capability,f.proof)).status,403);assert.equal(store.count(),0);
+ const intent=createIntent({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS,agentPrivatePem:f.agent.privatePem});
+ const fresh=f.iss.issue(intent);
+ const nextProof=createExecution({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS,capability:fresh,agentPrivatePem:f.agent.privatePem});
+ assert.equal((await call(fresh,nextProof)).status,200);assert.equal(store.count(),1);
+});
