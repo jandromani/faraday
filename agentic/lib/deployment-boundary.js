@@ -6,8 +6,28 @@ export class DeploymentBoundaryError extends Error{
 }
 function endpoints(service){return (service?.networks && (Array.isArray(service.networks)?service.networks:Object.keys(service.networks)))||[];}
 function mounts(service){return (service?.volumes||[]).map(v=>typeof v==='string'?{source:v.split(':')[0],target:v.split(':')[1]}:{source:v.source,target:v.target});}
-const unsafeDev = s => Boolean(s.devices?.length||s.volumes_from?.length||s.links?.length||s.extra_hosts?.length||s.secrets?.length||s.configs?.length||s.privileged||s.ipc==='host'||s.uts==='host');
+const unsafeDev = s => Boolean(s.devices?.length||s.volumes_from?.length||s.links?.length||s.extra_hosts?.length||s.secrets?.length||s.configs?.length||s.cap_add?.length||s.privileged||s.ipc==='host'||s.uts==='host');
 const hasNoNewPrivileges=s=>(s.security_opt||[]).some(v=>String(v).includes('no-new-privileges:true'));
+const isExplicitNonRoot=s=>typeof s.user==='string'&&/^[0-9]+:[0-9]+$/.test(s.user)&&
+  s.user.split(':').every(x=>Number.isSafeInteger(Number(x))&&Number(x)>0);
+const mountTargets={
+ agent:['/app','/run/agent'],
+ rogue:['/app'],
+ gateway:['/app','/run/faraday','/run/state'],
+ backend:['/app','/run/faraday/backend-secret','/run/backend-state']
+};
+const mountsRestricted=(service,role)=>{
+  const allowed=mountTargets[role],v=service.volumes;
+  if(!Array.isArray(v)||v.length!==allowed.length)return false;
+  const targets=v.map(m=>typeof m==='string'?m.split(':')[1]:m?.target);
+  if(new Set(targets).size!==allowed.length||targets.some(t=>!allowed.includes(t)))return false;
+  return v.every(m=>{
+    if(typeof m==='string')return false; // require normalized docker compose JSON, never hand-written strings
+    if(m?.type!=='bind'||typeof m.source!=='string'||!m.source.startsWith('/'))return false;
+    const mustReadOnly=['/app','/run/agent','/run/faraday','/run/faraday/backend-secret'].includes(m.target);
+    return !mustReadOnly||m.read_only===true;
+  });
+};
 export function validateReferenceBoundary(compose){
  const errors=[];const services=compose?.services||{};const networks=compose?.networks||{};
  const requireCheck=(cond,reason)=>{if(!cond)errors.push(reason);};
@@ -24,6 +44,8 @@ export function validateReferenceBoundary(compose){
    requireCheck(!service.network_mode && !service.volumes_from?.length && !service.dns?.length && !service.dns_search?.length,`${role}:network-overrides`);
    requireCheck(!service.ports?.length && !service.expose?.some(p=>String(p).includes('0.0.0.0')),`${role}:exposure`);
    requireCheck(service.read_only===true && hasNoNewPrivileges(service) && (service.cap_drop||[]).includes('ALL'),`${role}:hardening`);
+   requireCheck(isExplicitNonRoot(service),`${role}:nonroot-user`);
+   requireCheck(mountsRestricted(service,role),`${role}:mount-allowlist`);
    requireCheck(Number(service.pids_limit)>0 && Number(service.pids_limit)<=128 && Number(service.mem_limit)>0,`${role}:resource-limits`);
    const volumes=mounts(service);
    if(role==='agent'||role==='rogue')requireCheck(!volumes.some(m=>['/run/faraday','/run/backend-state','/run/state'].some(prefix=>[m.target,m.source].some(x=>x===prefix||x?.startsWith(prefix+'/')))),`${role}:secret-volume`);
