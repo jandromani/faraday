@@ -1,5 +1,23 @@
 # FARADAY — Estado verificado del roadmap (32 épicas)
 
+## v0.99.7 — E16: signed single-node journal recovery (CI pending)
+
+- SQLite online snapshot, Ed25519 manifest, SHA-256, integrity verification and restore exclusively to a new location.
+- Local tampering, overwrite, symbolic link and CLI tests; never re-executes a tool.
+- External CI and DR remain pending: no HA, encryption, offsite backups, validated RPO/RTO or independent verification.
+- E14/E16/E28 are improved partially, enterprise epics remain open.
+
+
+## Actualización v0.99.5 — revocación, rotación y evidencias testificadas (2026-10-29)
+
+- **E09/E10:** `LocalOAuthRevocations` opt-in por `jti`, `sub` y `client_id`, SQLite persistente y comprobación efectiva por solicitud HTTP; ausencia de `jti` o fallo del registro deniega. `PinnedOAuthResource.replacePublicJwks` sustituye de forma atómica un conjunto validado de claves **cuando un operador invoca la API**. Sin IdP ni revocación distribuida.
+- **E12:** lectura estricta de secreto de backend mediante archivos 0600 re-leídos por gateway y backend. Test end-to-end demuestra discrepancia de credenciales → denegación y estado incierto, replay impedido, y una capacidad nueva funciona tras rotación sin reiniciar. **No hay Vault, KMS ni broker de credenciales efímeras.**
+- **E14:** nuevo checkpoint de recibos de gateway y atestaciones de backend sintéticas, cadena de digests y firma de testigo Ed25519 con raíz de confianza suministrada aparte. Comprueba adulteración/reordenación/truncado y opcionalmente raíz esperada para detectar replay de checkpoints antiguos. **No existe aún testigo independiente integrado ni custodia offsite real.**
+- **E15/E16:** prueba integrada de rotación equivocada y no-replay de capacidades; no es HA, failover, ni reconciliación distribuida.
+- **Calidad:** suite Node local original ampliada a 243 pruebas antes del último test E2E de recuperación; CI adicional `trust-controls.yml` en Linux Node 22/24, macOS 24 y Windows 24. Su aprobación se registra separadamente en Actions.
+- **Clasificación:** todos son **avances parciales de Developer Preview**. Ninguna de las 32 épicas originales se cierra con este cambio y no se alteran cifras VC sin evidencia externa. Documentación: `agentic/docs/V0995_TRUST_HARDENING.md`.
+
+
 ## Auditoría local posterior a v0.99.4 (2026-10-29)
 
 - `npm run test:all` completado en Windows y Node 24.22.0: 232 pruebas Node aprobadas, 11 omitidas; 6 pruebas Python aprobadas, 2 omitidas. Las omisiones incluyen limitaciones de ACL y enlaces simbólicos en Windows, no cuentan como pruebas aprobadas.
@@ -144,10 +162,6 @@
 | E30 | Distribution / DX | Parcial | G: documentación, CLI, npm pack privado, demos; paquete local v0.97 | Npm público, instaladores OS, documentación con pruebas externas, Helm |
 | E31 | Enterprise readiness | **Pendiente** | No hay SSO, despliegue con tenancy, SLA, auditoría externa ni certificaciones | RBAC/SSO, entornos reales, cumplimiento, seguridad independiente |
 | E32 | Commercial validation / launch | **Pendiente** | No hay pilotos de cliente confirmados ni ingresos atribuibles | 3 pilotos, benchmarks competitivos, aceptación, pricing y distribución |
-
-E21–E26, mejoras locales: TimeMachine rechaza políticas alternativas explícitas inválidas. El catálogo de IA gratuita rechaza precios malformados y valores positivos que se redondean a cero; esto no garantiza que el proveedor no cambie sus tarifas. El laboratorio distribuye sus elecciones con los bits altos del generador y su huella incluye los casos; la huella no es una firma. El inventario marca transportes explícitos desconocidos como no verificados; la elegibilidad restante solo describe el tipo de transporte, no valida la configuración ni la conectividad. El corpus de alcance ejecuta 120 mutaciones distintas con reloj controlado. Las brechas indicadas en la tabla permanecen abiertas.
-
-E26–E32, mejoras locales: las mutaciones usan reloj fijo; los microbenchmarks indican calentamiento y método de percentiles; la auditoría de paquete rechaza rutas duplicadas, no canónicas y padres simbólicos; el visor rechaza tokens Unicode inválidos sin excepciones; el comando de pruebas Python admite Windows. La firma de evidencia exige Ed25519 y una raíz propia, pero no demuestra independencia ni preparación empresarial. Para E32 siguen siendo necesarios pilotos consentidos, criterios de aceptación y resultados verificables; no se han acreditado clientes, ingresos ni despliegues comerciales. Estas comprobaciones locales no cierran las épicas.
 
 ## Bloqueantes y secuencia de trabajo
 
