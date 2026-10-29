@@ -80,7 +80,7 @@ export function restoreVerifiedJournalBackup({backupPath,receiptPath,restorePath
  const evidence=verifySignedJournalBackup({backupPath,receiptPath:receiptPath||backupPath+'.receipt.json',publicPem});
  mkdirSync(dirname(dst),{recursive:true,mode:0o700});
  copyFileSync(src,dst,constants.COPYFILE_EXCL);chmodSync(dst,0o600);
- try{if(inspect(dst).operationCount!==evidence.operationCount)throw Error('restore-validation-failed');}
+ try{if(sha(readFileSync(safeFile(dst)))!==evidence.backupSha256)throw Error('restore-hash-mismatch');if(inspect(dst).operationCount!==evidence.operationCount)throw Error('restore-validation-failed');}
  catch(e){rmSync(dst,{force:true});throw e;}
  return {...evidence,restorePath:dst,executionRepeated:false,requiresOperatorReview:true};
 }
