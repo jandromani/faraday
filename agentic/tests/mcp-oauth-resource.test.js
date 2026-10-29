@@ -32,17 +32,24 @@ test('JWT alg confusion and signature tampering fail closed',()=>{
  const arr=token(k).split('.');arr[2]='A'+arr[2].slice(1);if(arr[2]===token(k).split('.')[2])arr[2]='B'+arr[2].slice(1);
  assert.throws(()=>v.verifyAuthorization('Bearer '+arr.join('.'),'mcp:tools:read'),/invalid_token/);
 });
-async function serve(t,s){await new Promise(resolve=>s.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>{s.close(resolve);s.closeAllConnections();}));return 'http://127.0.0.1:'+s.address().port;}
+async function serve(t,s){await new Promise(resolve=>s.listen(0,'127.0.0.1',resolve));(t._faradayServers??=[]).push(s);return 'http://127.0.0.1:'+s.address().port;}
 async function system(t){
- const dir=mkdtempSync(join(tmpdir(),'faraday-http-oauth-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
+ const dir=mkdtempSync(join(tmpdir(),'faraday-http-oauth-'));
  const f=fixture(dir),receipt=newIdentity(),backKey=newIdentity(),journal=new ExecutionJournal(join(dir,'journal.sqlite')),
  store=new DurableSyntheticStore(join(dir,'backend.sqlite')),k=keys();
- t.after(()=>{f.close();journal.close();store.close();});
+ 
  const backend=createDurableSyntheticBackend({secret:f.backendSecret,store,attestationPrivatePem:backKey.privatePem});
  const backendUrl=await serve(t,backend);
  const g=createSecurePilotGateway({gate:f.gate,backendUrl:backendUrl+'/internal/execute',backendSecret:f.backendSecret,
  journal,receiptPrivatePem:receipt.privatePem,backendPublicPem:backKey.publicPem,oauthResource:verifier(k)});
- return {url:await serve(t,g),f,store,k};
+ const url=await serve(t,g);
+ t.after(async()=>{
+   for(const server of [...t._faradayServers].reverse()){
+     await new Promise(resolve=>{server.close(resolve);server.closeAllConnections();});
+   }
+   f.close();journal.close();store.close();rmSync(dir,{recursive:true,force:true});
+ });
+ return {url,f,store,k};
 }
 function rpc(method,params={},version='2026-07-28'){return {jsonrpc:'2.0',id:1,method,params:{...params,
  _meta:{'io.modelcontextprotocol/protocolVersion':version}}};}
