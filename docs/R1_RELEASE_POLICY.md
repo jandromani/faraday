@@ -9,9 +9,10 @@ The manual workflow `FARADAY R1 Release Assurance and Attested Candidate` only r
 1. Node/Python regressions, synthetic evaluations and package audit pass.
 2. Blocking adversarial Docker tests pass; a bypass failure cannot be offset by other tests.
 3. The pinned official JavaScript MCP client 1.32.2 connects through FARADAY to official Filesystem 2.0.1 on Linux, macOS and Windows with a read-only tool call.
-4. A package installs offline on all three systems. The **Windows ACL safety rejection remains expected**, not an automatic Windows installation pass.
-5. The local package archive matches **every source-file hash** in an SPDX 2.3 inventory, including archive path validation and pinned commit identity.
-6. GitHub OIDC/Sigstore creates a provenance attestation, and GitHub CLI verifies it.
+4. A disposable **official Vault** instance must pass a least-privilege AppRole lifecycle: an isolated token can read only the designated KVv2 secret; denied admin, other-secret and write attempts must return 403; rotation, revocation and fresh-token recovery must succeed.
+5. A package installs offline on all three systems. The **Windows ACL safety rejection remains expected**, not an automatic Windows installation pass.
+6. The local package archive matches **every source-file hash** in an SPDX 2.3 inventory, including archive path validation and pinned commit identity.
+7. GitHub OIDC/Sigstore creates a provenance attestation, and GitHub CLI verifies it.
 
 No npm publishing is implemented. With `publish_prerelease=false`, the workflow creates only a downloadable Actions artifact, not a GitHub Release. With `true`, GitHub creates a Developer Preview prerelease **only after every gate and attestation is successful**.
 
