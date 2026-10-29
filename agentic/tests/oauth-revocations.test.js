@@ -52,5 +52,5 @@ test('revocation store fails closed on missing or symlinked file',t=>{
  const root=mkdtempSync(join(tmpdir(),'faraday-revocation-path-'));t.after(()=>rmSync(root,{recursive:true,force:true}));
  const db=join(root,'real.db');assert.throws(()=>new LocalOAuthRevocations(db),/missing/);
  const writer=new LocalOAuthRevocations(db,{create:true});writer.close();
- const link=join(root,'link.db');symlinkSync(db,link);assert.throws(()=>new LocalOAuthRevocations(link),/unsafe/);
+ if(process.platform!=='win32'){const link=join(root,'link.db');symlinkSync(db,link);assert.throws(()=>new LocalOAuthRevocations(link),/unsafe/);}
 });
