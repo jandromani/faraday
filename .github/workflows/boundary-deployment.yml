@@ -1,0 +1,68 @@
+name: FARADAY Vault and Network Trust Boundary
+on:
+  push:
+    paths:
+      - 'agentic/**'
+      - '.github/workflows/boundary-deployment.yml'
+  pull_request:
+    paths:
+      - 'agentic/**'
+      - '.github/workflows/boundary-deployment.yml'
+jobs:
+  kv2:
+    name: Vault adapter + deployment assertions / ${{ matrix.os }} / Node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, node: 22}
+          - {os: ubuntu-latest, node: 24}
+          - {os: windows-latest, node: 24}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: agentic
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm run boundary:test
+  adversarial-docker:
+    name: Real Docker rogue-agent no-bypass reference
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agentic
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - run: npm run pilot:docker
+  vault-official-dev:
+    name: Official HashiCorp Vault KV v2 dev-mode protocol
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agentic
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Start official disposable Vault
+        run: >-
+          docker run -d --rm --name faraday-vault-dev
+          -p 127.0.0.1:18200:8200
+          -e VAULT_DEV_ROOT_TOKEN_ID=faraday-ci-dev-root-token-not-production
+          -e VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+          hashicorp/vault:1.20.4 server -dev
+      - name: Vault read, rotate and revoke
+        env:
+          FARADAY_TEST_VAULT_TOKEN: faraday-ci-dev-root-token-not-production
+          FARADAY_TEST_VAULT_URL: http://127.0.0.1:18200
+        run: node scripts/vault-dev-smoke.mjs
+      - name: Stop disposable Vault
+        if: always()
+        run: docker rm -f faraday-vault-dev || true
