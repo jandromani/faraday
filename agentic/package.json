@@ -1,8 +1,8 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.99.0",
+  "version": "0.99.1",
   "private": true,
-  "description": "FARADAY E2E synthetic agent workflow with free-only model option and signed MCP evidence",
+  "description": "FARADAY 15 scoped epic acceptance gates with multi-OS CI and honest Developer Preview status",
   "type": "module",
   "bin": {
     "faraday": "./bin/faraday.js",
@@ -30,7 +30,9 @@
     "benchmark:smoke": "node bin/faraday.js benchmark --iterations 25",
     "test:python": "PYTHONPATH=python python3 -m unittest discover -s python/tests -v",
     "workflow": "node bin/faraday.js workflow demo",
-    "workflow:eval": "node bin/faraday.js workflow eval --limit 100"
+    "workflow:eval": "node bin/faraday.js workflow eval --limit 100",
+    "closure:report": "node scripts/epic-closure-report.mjs",
+    "closure:test": "node --test tests/closure-acceptance.test.js"
   },
   "license": "Apache-2.0",
   "exports": {

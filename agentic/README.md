@@ -1,3 +1,5 @@
+> **v0.99.1 acceptance audit:** 15 scoped Developer Preview gates; cross-OS CI; no enterprise epics certified. See [acceptance report](docs/EPIC_CLOSURE_V0991.md).
+
 ## FARADAY v0.98 — optional Python Framework Adapters
 
 Adapter modules for **LangGraph**, **CrewAI**, and **OpenAI Agents SDK** use documented tool/node/hook APIs and a shared metadata-only JSONL schema. The Node CLI imports their traces into the existing SQLite graph. No model API calls, credentials, monkey patches or network access are required for the included dummy tests. **This does not create a mandatory security boundary.**
