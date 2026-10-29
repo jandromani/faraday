@@ -1,0 +1,50 @@
+name: FARADAY Live MCP Interoperability
+on:
+  push:
+    paths:
+      - 'agentic/**'
+      - '.github/workflows/mcp-live-interop.yml'
+  pull_request:
+    paths:
+      - 'agentic/**'
+      - '.github/workflows/mcp-live-interop.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mcp-live:
+    name: Official filesystem + everything / modern + legacy
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned official MCP server packages (test-only)
+        run: |
+          mkdir -p "$RUNNER_TEMP/faraday-mcp-external"
+          npm install --prefix "$RUNNER_TEMP/faraday-mcp-external" --ignore-scripts --no-audit --no-fund \
+            @modelcontextprotocol/server-filesystem@2.0.1 \
+            @modelcontextprotocol/server-everything@2.0.1
+      - name: Live read-only MCP interop smoke
+        working-directory: agentic
+        env:
+          FARADAY_MCP_FIXTURES: ${{ runner.temp }}/faraday-mcp-external
+        run: node scripts/real-mcp-smoke.mjs
+  onboarding:
+    name: 'Cold install and reversible client config / ${{ matrix.os }}'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Cold install, onboarding, rollback and doctor
+        working-directory: agentic
+        run: node scripts/onboarding-smoke.mjs

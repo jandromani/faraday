@@ -1,3 +1,7 @@
+## v0.99.2 — Active MCP compatibility & cold onboarding
+
+The read-only by default live stdio probe supports modern `server/discover` (2026-07-28), legacy `initialize` (2025-11-25) and paginated `tools/list` on configured servers. Run `faraday compat probe --config .mcp.json --server NAME` to discover the real protocol era without executing tools. The CI tests pinned upstream official MCP filesystem/everything servers; another CI matrix validates offline install, rollback and diagnostics across operating systems. See [docs/V0992_LIVE_MCP_INTEROP.md](docs/V0992_LIVE_MCP_INTEROP.md) for limitations and opting in to a *named* safe tool call. **Not an MCP conformance certification.**
+
 > **v0.99.1 acceptance audit:** 15 scoped Developer Preview gates; cross-OS CI; no enterprise epics certified. See [acceptance report](docs/EPIC_CLOSURE_V0991.md).
 
 ## FARADAY v0.98 — optional Python Framework Adapters

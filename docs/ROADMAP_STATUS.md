@@ -1,5 +1,14 @@
 # FARADAY — Estado verificado del roadmap (32 épicas)
 
+## Actualización v0.99.2 — E05/E06 comprobadas externamente (2026-10-29)
+
+- Rama `feature/v0992-mcp-live-interop`, [GitHub Actions 40857495831](https://github.com/jandromani/faraday/actions/runs/40857495831): **4/4 jobs PASS**, además de Graph, Security y matriz previa de 15 entregables aprobadas en la rama.
+- **E05:** instalación en frío desde paquete npm local, instalación offline, `init`, instrumentación, reversión y `doctor` en Linux, macOS y Windows: tiempos de fixture **1.535 / 2.349 / 5.265 s**.
+- **E06:** descubrimiento y enumeración de herramientas vía stdio con servidores oficiales Filesystem 2.0.1 y Everything 2.0.1. MCP **2026-07-28** y **2025-11-25**: recuentos **14/14** y **22/16**, respectivamente. Una lectura expresamente autorizada se ejecutó correctamente.
+- **Cierre limitado:** se cierran las capacidades acotadas de instalación en CI y descubrimiento stdio. **E05/E06 completas siguen parciales**: transporte HTTP y OAuth, extensiones, clientes reales y onboarding humano no validados.
+- Evidencias: `agentic/docs/V0992_LIVE_MCP_INTEROP.md` y `agentic/docs/V0992_CI_EVIDENCE.json`.
+
+
 ## Actualización verificada v0.99.1 — 15 gates de Developer Preview (29/10/2026)
 
 **PR #7 fusionada en master:** https://github.com/jandromani/faraday/pull/7 . Contratos de aceptación versionados en `agentic/docs/EPIC_CLOSURE_SCOPE_V1.json`; test técnico en `agentic/tests/closure-acceptance.test.js`; informe reproducible en `agentic/scripts/epic-closure-report.mjs`. CI multiplataforma **5/5 aprobada** (Ubuntu Node 22/24, macOS Node 24, Windows Node 24, regresión Linux): https://github.com/jandromani/faraday/actions/runs/40841462167 . CI Graph y Security también aprobadas sobre el commit de PR.

@@ -1,0 +1,51 @@
+{
+  "release": "0.99.2",
+  "date": "2026-10-29",
+  "testedBranchCommit": "f49b364aeae20e3f29b872a27fc0fa74fcbacdcb",
+  "workflow": {
+    "url": "https://github.com/jandromani/faraday/actions/runs/40857495831",
+    "passedJobs": 4,
+    "totalJobs": 4
+  },
+  "officialServers": [
+    {
+      "package": "@modelcontextprotocol/server-filesystem",
+      "version": "2.0.1",
+      "toolCounts": {
+        "2026-07-28": 14,
+        "2025-11-25": 14
+      }
+    },
+    {
+      "package": "@modelcontextprotocol/server-everything",
+      "version": "2.0.1",
+      "toolCounts": {
+        "2026-07-28": 22,
+        "2025-11-25": 16
+      }
+    }
+  ],
+  "readOnlyTool": {
+    "name": "list_allowed_directories",
+    "called": true,
+    "passed": true
+  },
+  "coldInstall": [
+    {
+      "os": "Linux",
+      "node": "24.22.1",
+      "elapsedMs": 1535
+    },
+    {
+      "os": "macOS",
+      "node": "24.21.0",
+      "elapsedMs": 2349
+    },
+    {
+      "os": "Windows",
+      "node": "24.22.1",
+      "elapsedMs": 5265
+    }
+  ],
+  "scope": "Developer Preview; live stdio discovery, read-only tool and isolated packaging fixture; no claim of full MCP conformance or enterprise security"
+}
