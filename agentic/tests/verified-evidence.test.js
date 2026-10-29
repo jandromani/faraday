@@ -28,7 +28,7 @@ function setup(t,profile){
 }
 for(const profile of ['r2','r3']){
  test('collector verifies actual bytes; untrusted attestation flags ignored: '+profile,t=>{
-  const f=setup(t,profile);const result=f.run();assert.equal(result.passed,true);
+  const f=setup(t,profile);const result=f.run();assert.equal(result.manifestComplete,true);assert.equal(result.releaseGatePassed,false);
   assert.equal(result.filesChecked,profile==='r2'?10:17);assert.equal(result.executionProvenanceVerified,false);
  });
  test('collector rejects tampered evidence: '+profile,t=>{
