@@ -1,6 +1,6 @@
 # FARADAY — Estado verificado del roadmap (32 épicas)
 
-****Corte inicial:** 2026-10-28 · **Actualización v0.97 (2026-10-29):** TimeMachine sintético, inspector de recuperación y benchmarks offline incorporados en master mediante PR #4. Ninguna funcionalidad nueva implica certificación de producción.n v0.96:** nuevos controles de operación y evals en rama de release · **Fuente canónica publicada:** `master` en `79e29f2119e3720a2c0126ded6f48a8b976af4e3` (v0.95.1 Secure Pilot hardening).
+**Corte:** 2026-10-29 · **Actualización v0.98:** adaptadores Python LangGraph/CrewAI/OpenAI Agents con pruebas de SDK reales en CI; PR #5. Alcance: integración opt-in, no enforcement obligatorio ni certificación de producción.
 
 > Este documento es una auditoría de estado, **no** una certificación de seguridad, una afirmación de producción ni un porcentaje de preparación para empresas. Distingue código publicado (G), pruebas locales (L) y pendientes. «Parcial» significa que hay código o evidencia que cubren solo una parte de la épica original; **no significa épica cerrada**.
 
@@ -10,7 +10,7 @@
 - **G:** v0.95 fue fusionada por PR #1; v0.95.1 por PR #2. **116/116** tests Node locales + **100/100** evaluaciones MCP sintéticas; **40** operaciones de backend en dicho corpus. El backend ahora firma evidencias independientes del recibo del gateway y existe conciliación mediante consulta de estado, sin volver a ejecutar la operación. Documentación: `agentic/docs/V0951_EVIDENCE_RECOVERY.md`. No hay herramienta de cliente ni efectos productivos atestados.
 - **G:** v0.8 lab: **1000 escenarios** deterministas, **650 checks PASS, 0 FAIL, 350 GAP**. Los GAP no son aprobados. No constituyen 1000 ataques independientes contra una infraestructura real.
 - **G:** el paquete `agentic/package.json` mantiene `private: true`. No hay publicación npm pública verificada.
-- **Ninguna de las 32 épicas originales está completamente cerrada** con todos los criterios empresariales contemplados. **29** tienen una implementación parcial/prototipo; **3** carecen de su capacidad central. Estas cifras son una clasificación de backlog, no una métrica de seguridad.
+- **Ninguna de las 32 épicas originales está completamente cerrada** con todos los criterios empresariales contemplados. **30** tienen una implementación parcial/prototipo; **2** carecen de su capacidad central. Estas cifras son una clasificación de backlog, no una métrica de seguridad.
 
 
 ## Actualización v0.96 — Evidencias adicionales
@@ -31,19 +31,26 @@
 - **E28:** `agentic/scripts/release-audit.mjs` genera SBOM inventario SPDX 2.3 con SHA-256 y rechazo de secretos/paquetes accidentalmente públicos. **No es SBOM firmado, no es attestación SLSA ni auditoría independiente.**
 - **Tests:** suite local ampliada v0.97 157/157; tests efectivamente ejecutados en la CI Node 22 de PR #4: 143/143. Diferencia por pruebas locales adicionales no publicadas, no deben confundirse. Las 350 lagunas del laboratorio v0.8 siguen siendo lagunas.
 
+## Actualización v0.98 — E07 y E25 (frameworks)
+
+- **E07:** `agentic/python/faraday_adapters` incorpora adaptadores **opt-in** sobre APIs públicas, sin monkey patch, para LangGraph `StateGraph` (nodos/tools), CrewAI hooks de herramienta y OpenAI Agents SDK `FunctionTool`/`RunHooks`. No interceptan llamadas directas no instrumentadas.
+- **E08:** `faraday adapters ingest` valida esquema de metadatos pseudonimizados y lo integra en SQLite Graph (límites de tamaño, symlinks rechazados, importación transaccional, deduplicación por hash de archivo).
+- **E25:** CI [real-SDK adapter compatibility](https://github.com/jandromani/faraday/actions/runs/40836798238) con **3/3 jobs** correctos; se instalan librerías reales pero no se realiza un workflow multiagente con proveedor LLM ni se prueba compatibilidad completa.
+- **Calidad:** 160/160 pruebas Node, 8/8 Python locales, CI Node 22/24 y Docker aprobadas en [Graph CI](https://github.com/jandromani/faraday/actions/runs/40836798328). **Ninguna de las 32 épicas está completamente cerrada en su alcance original.**
+
 ## Resumen ejecutivo
 
 | Fase | Épicas | Parciales | Capacidad central pendiente | Evidencia principal | Próximo bloqueo |
 | --- | --- | ---: | ---: | --- | --- |
 | F0 Foundations | E01–E04 | 4 | 0 | Docs y tests de seguridad | Especificación integral de interfaces, riesgos y privacidad |
-| F1 Universal Plug & Use | E05–E08 | 3 | 1 | CLI, MCP stdio/HTTP bridge, SQLite Graph, Contracts | Adapters framework reales y conformidad externa |
+| F1 Universal Plug & Use | E05–E08 | 4 | 0 | CLI, MCP stdio/HTTP bridge, SQLite Graph, Contracts y adapters Python opt-in v0.98 | Validación end-to-end con workflows reales y conformidad externa |
 | F2 Trust Boundary | E09–E14 | 6 | 0 | PoP Ed25519, policy, Docker, doble firma v0.95.1 | SPIFFE/OIDC, claves KMS y herramientas reales |
 | F3 Reliable Runtime | E15–E19 | 5 | 0 | Idempotencia v0.95.1, cuotas locales, aprobación dual y Sentinel v0.96 | HA y flujo empresarial de aprobaciones/incidentes |
 | F4 Agent Intelligence | E20–E22 | 3 | 0 | TrustDiff, structural impact, asesor opcional free | TimeMachine, evaluación causal y MemoryGuard |
 | F5 FARADAY Lab | E23–E27 | 5 | 0 | 12 actores, 1000 escenarios, 100 evals de piloto, 760 mutaciones v0.96 | Fuzzing guiado, chaos sistemático y benchmarks externos |
 | F6 Product Engineering | E28–E30 | 3 | 0 | GitHub CI, visor local, npm pack privado | Supply-chain verificable, consola enterprise, distribución |
 | F7 Enterprise & Launch | E31–E32 | 0 | 2 | No existe piloto real ni acreditación | SSO/tenancy, pilotos, auditoría independiente y GTM |
-| **Total** | **32** | **29** | **3** | **0 épicas cerradas al alcance original** | |
+| **Total** | **32** | **30** | **2** | **0 épicas cerradas al alcance original** | |
 
 ## Detalle por épica
 
@@ -55,7 +62,7 @@
 | E04 | Privacy / governance | Parcial | G: registros minimizados, pseudónimos, permisos SQLite, consentimiento IA | Cifrado, DLP avanzado, tenancy, retención y eliminación verificables |
 | E05 | Universal installer | Parcial | G: `init`, `doctor`, `onboard`, instrumentación reversible, `dry-run` | Distribución multiplataforma probada, instalador oficial, onboarding real medido |
 | E06 | MCP compatibility | Parcial | G: proxy stdio, bridge Streamable HTTP JSON/SSE sintético; L: subset protegido `/mcp` | Protocolo completo, OAuth, SSE avanzado, conformidad externa |
-| E07 | Framework adapters | **Pendiente** | G: descubrimiento de archivos de configuración de clientes; no adapters SDK propios | Integraciones verificadas LangGraph, CrewAI, OpenAI Agents, n8n, HTTP directo |
+| E07 | Framework adapters | Parcial **G v0.98** | G: wrappers explícitos LangGraph StateGraph; hooks oficiales CrewAI; FunctionTool/RunHooks OpenAI Agents SDK; trazas JSONL pseudonimizadas ingeridas por Graph; smoke SDK real 3/3 en CI | Workflows completos con LLM/servidores externos, varias versiones, LangChain create_agent, n8n y bypass tests en entornos reales |
 | E08 | Living Agent Graph | Parcial | G: topología, SQLite, trazas mínimas, Contracts, exportación, TrustDiff | Descubrimiento universal, relaciones causales completas, histórico y blast-radius probado |
 | E09 | Agent identity / delegation | Parcial | G: claves de agente Ed25519 fijadas y prueba criptográfica de posesión | SPIFFE/OIDC real, attestation, delegación interagentes, revocación dinámica |
 | E10 | Authority / policy engine | Parcial | G: capacidades firmadas y políticas de ejemplo por recurso; L: validación en MCP protegido | Motor general de políticas, múltiples recursos/tenants y gestión de políticas |
@@ -73,7 +80,7 @@
 | E22 | MemoryGuard / free AI | Parcial | G: asesor OpenRouter `free` opcional, metadatos reducidos | Contradicción/contaminación RAG, procedencia, expiración y evals de memoria |
 | E23 | Dummy agent factory | Parcial | G: 12 actores y servidor MCP sintético, fixture local | Simulador multiagente realista con reloj/red controlados, extensiones |
 | E24 | Offensive evals | Parcial | G: escenarios de seguridad deterministas con lagunas explícitas; L: 100 casos MCP criptográficos | Agentes de ataque adaptativos, corpus amplio de exploits, red team |
-| E25 | Compatibility lab | Parcial | G: matriz estática y pruebas con fixtures MCP | Suites con clientes/proveedores reales, OS matrix, conformidad |
+| E25 | Compatibility lab | Parcial **G v0.98** | G: matriz estática, fixtures MCP y tres smokes contra SDK reales (LangGraph/CrewAI/OpenAI Agents) sin LLM ni herramientas externas | Conformidad MCP y workflows completos, matriz versiones/OS, clientes/proveedores reales |
 | E26 | Fuzzing / chaos | Parcial | G v0.96: 760 mutaciones adversariales deterministas de firmas, capacidades y alcance; regresión Base64URL no canónica | Coverage-guided fuzzing, mutación de políticas completa, chaos distribuido y pruebas de estrés |
 | E27 | Benchmarks / scoreboard | Parcial **G** | G v0.97: microbenchmarks offline con mediana y p95 de políticas/replay; informes de 1000 escenarios | End-to-end gateway p95/throughput, hardware controlado, falsos permisos y competidores |
 | E28 | Secure supply chain | Parcial **G** | G v0.97: informe SPDX 2.3 por fichero, SHA-256, gate contra secretos, distribución privada y CI Node 22/24 | Firmas, SLSA, SCA, escáner de secretos de repositorio, branch protection y releases reproducibles |
