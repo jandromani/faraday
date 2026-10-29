@@ -1,3 +1,18 @@
+## FARADAY v0.99.4 — Architectural decisions A–D
+
+Four versioned internal API entrypoints (`./connect`, `./authority-suite`, `./evidence`, `./lab-suite`) preserve old imports. The migration is **phase 1, not four standalone services**. See [ADR-001](docs/ADR-001-FOUR-COMPONENTS.md).
+
+External gateway: [agentgateway/Envoy comparison and fail-closed integration port](docs/ADR-002-GATEWAY-MAKE-OR-BUY.md) — **not deployed into production**. Standards: [OWASP/ACS control crosswalk and safe OTel MCP projection](docs/ADR-003-STANDARDS-TELEMETRY.md). Assurance: [hard unit/integration/adversarial/independent evidence gates](docs/ADR-004-ASSURANCE-GATES.md); no claim of independent validation.
+
+```bash
+npm run architecture:test
+npm run test:all
+# With Docker and a real Git checkout:
+npm run assurance:ci
+```
+
+---
+
 ## FARADAY v0.99.3 — MCP Streamable HTTP + OAuth Resource Boundary
 
 **New opt-in security**: Pinned Ed25519/RS256 JWT access-token verification, RFC 9728 metadata, read/execute scopes, bearer challenges, exact issuer/audience and JWT-subject-to-agent binding. The existing FARADAY Ed25519 capability, policy, operator approvals, idempotency and signed receipts still apply to synthetic `tools/call`. MCP 2026 `server/discover` uses the spec-correct result envelope. This is an OAuth **resource-server verifier**, NOT an authorization server, user login or production deployment.
