@@ -1,5 +1,15 @@
 # FARADAY — Estado verificado del roadmap (32 épicas)
 
+## Actualización v0.99.3 — HTTP OAuth Resource Boundary (2026-10-29)
+
+- **E06 — MCP Streamable HTTP (parcial)**: `server/discover` modern 2026-07-28 con resultado `supportedVersions`, `resultType`, metadatos de servidor; `tools/list`/`tools/call` modern JSON; `initialize` y llamadas 2025-11-25 **solo en subconjunto sin gestión integral de sesiones/SSE**. No conformidad universal.
+- **E09/E10/E11 — Identidad/autoridad/gateway (parcial)**: módulo `PinnedOAuthResource` opt-in con JWT EdDSA/RS256, claves públicas JWKS estáticas, `iss`, `aud`, `sub`, `client_id`, `exp`, scopes read/execute, metadata RFC9728 y desafío RFC6750. La ejecución requiere **tanto JWT válido como capacidad FARADAY Ed25519**, y `sub` coincide con identidad del agente; la autorización decide el scope usando el cuerpo JSON-RPC, no cabeceras no confiables. No hay servidor OAuth ni SSO real.
+- **E24/E26/E27 — Pruebas y benchmarks (parcial)**: 200 casos sintéticos de ataque a tokens firmados y tests HTTP reales de loopback, con CI multinodo/multiplataforma. No equivale a red team externo, throughput productivo ni latencia p95 de red.
+- **E05 — Instalador:** Sin ampliación de su alcance original en esta release.
+- **Pendiente v1.0:** OAuth login/PKCE/CIMD desde clientes, renovación JWKS y revocación, scopes jerárquicos, transporte SSE/MRTR, integración IdP y clientes externos, red no-bypass validada fuera de fixtures, auditoría independiente.
+- Evidencia: `agentic/docs/V0993_HTTP_OAUTH.md`, `agentic/tests/mcp-oauth-resource.test.js`, `agentic/scripts/oauth-attack-evals.mjs`, `.github/workflows/mcp-http-oauth.yml`.
+
+
 ## Actualización v0.99.2 — E05/E06 comprobadas externamente (2026-10-29)
 
 - Rama `feature/v0992-mcp-live-interop`, [GitHub Actions 40857495831](https://github.com/jandromani/faraday/actions/runs/40857495831): **4/4 jobs PASS**, además de Graph, Security y matriz previa de 15 entregables aprobadas en la rama.
