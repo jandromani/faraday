@@ -1,5 +1,13 @@
 # FARADAY — Estado verificado del roadmap (32 épicas)
 
+## v0.99.7 — E16: signed single-node journal recovery (CI pending)
+
+- SQLite online snapshot, Ed25519 manifest, SHA-256, integrity verification and restore exclusively to a new location.
+- Local tampering, overwrite, symbolic link and CLI tests; never re-executes a tool.
+- External CI and DR remain pending: no HA, encryption, offsite backups, validated RPO/RTO or independent verification.
+- E14/E16/E28 are improved partially, enterprise epics remain open.
+
+
 ## Actualización v0.99.5 — revocación, rotación y evidencias testificadas (2026-10-29)
 
 - **E09/E10:** `LocalOAuthRevocations` opt-in por `jti`, `sub` y `client_id`, SQLite persistente y comprobación efectiva por solicitud HTTP; ausencia de `jti` o fallo del registro deniega. `PinnedOAuthResource.replacePublicJwks` sustituye de forma atómica un conjunto validado de claves **cuando un operador invoca la API**. Sin IdP ni revocación distribuida.
