@@ -5,7 +5,7 @@
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {readFileSync,statSync,writeFileSync,lstatSync} from 'node:fs';
-import {resolve,dirname,join} from 'node:path';
+import {resolve,dirname,join,relative,isAbsolute,sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const hash=x=>createHash('sha256').update(x).digest('hex');
@@ -22,7 +22,8 @@ export function audit({project=root,packFn}={}){
    const name=entry.path;
    if(typeof name!=='string'||name.startsWith('/')||name.includes('..')||name.includes('\\')||bannedName.test(name)){failures.push({path:String(name),reason:'unsafe-package-path'});continue;}
    const full=resolve(project,name);
-   if(!full.startsWith(resolve(project)+'/')){failures.push({path:name,reason:'path-escape'});continue;}
+   const relativeToProject=relative(resolve(project),full);
+   if(!relativeToProject||relativeToProject==='..'||relativeToProject.startsWith('..'+sep)||isAbsolute(relativeToProject)){failures.push({path:name,reason:'path-escape'});continue;}
    const st=lstatSync(full);
    if(!st.isFile()||st.isSymbolicLink()){failures.push({path:name,reason:'nonregular-or-symlink'});continue;}
    const bytes=readFileSync(full),s=bytes.toString('utf8');

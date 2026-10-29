@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Verify 15 scoped acceptances and write immutable-evidence report
+      - name: Verify 15 scoped acceptances and write versioned evidence report
         working-directory: agentic
         shell: bash
         run: |

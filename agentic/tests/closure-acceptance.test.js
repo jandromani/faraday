@@ -96,7 +96,7 @@ test('[E14] an executed synthetic MCP operation carries independently verifiable
  assert.equal(x.trace.mode,'offline-dummy');
 });
 
-test('[E17] SQLite quota fails closed, survives reopen and prevents duplicate concurrent budget consumption',t=>{
+test('[E17] SQLite quota fails closed, survives reopen and enforces quota across database reopen',t=>{
  const root=workspace(t),db=join(root,'budget.sqlite'),limits={demo:{maxCalls:3,windowMs:60000}};
  const b=new LocalBudget(db,{limits,now:()=>60010});
  for(let i=0;i<3;i++)assert.equal(b.consume('demo').allowed,true);
