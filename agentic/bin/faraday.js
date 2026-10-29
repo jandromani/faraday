@@ -99,7 +99,7 @@ function argsOf(args) {
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
     if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion','fail-on-divergence','send-intent','allow-call'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms','file','protocol','timeout-ms','call-tool','max-pages','backup-file'].includes(key)) throw new Error('Unknown option');
+    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms','file','protocol','timeout-ms','call-tool','max-pages','backup-file','expected-sha256','min-created-at'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -164,12 +164,14 @@ async function main() {
       if(!flags['backup-file']||!flags['public-key'])throw Error('recovery verify requires --backup-file and --public-key');
       report=verifySignedJournalBackup({backupPath:resolve(flags['backup-file']),
         receiptPath:flags.receipt?resolve(flags.receipt):undefined,
-        publicPem:readKeyFile(resolve(flags['public-key']),{privateKey:false})});
+        publicPem:readKeyFile(resolve(flags['public-key']),{privateKey:false}),
+        expectedSha256:flags['expected-sha256'],minCreatedAt:flags['min-created-at']===undefined?undefined:Number(flags['min-created-at'])});
     }else if(action==='restore'){
       if(!flags['backup-file']||!flags['public-key']||!flags.out)throw Error('recovery restore requires --backup-file, --out and --public-key');
       report=restoreVerifiedJournalBackup({backupPath:resolve(flags['backup-file']),restorePath:resolve(flags.out),
         receiptPath:flags.receipt?resolve(flags.receipt):undefined,
-        publicPem:readKeyFile(resolve(flags['public-key']),{privateKey:false})});
+        publicPem:readKeyFile(resolve(flags['public-key']),{privateKey:false}),
+        expectedSha256:flags['expected-sha256'],minCreatedAt:flags['min-created-at']===undefined?undefined:Number(flags['min-created-at'])});
     }else throw Error('Use recovery inspect|backup|verify|restore');
     process.stdout.write(JSON.stringify(report,null,2)+'\n');
   } else if(cmd==='sentinel'){

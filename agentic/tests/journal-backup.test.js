@@ -48,3 +48,13 @@ test('CLI backup verify restore cycle without modifying original journal',async(
  assert.equal(done.executionRepeated,false);assert.equal(done.requiresOperatorReview,true);
  j.reserve('synthetic-003','hash-003');assert.equal(j.get('synthetic-003').state,'reserved');j.close();
 }));
+
+test('independently pinned digest and minimum time reject an older valid signed backup',async()=>withTmp(async dir=>{
+ const {journal,j}=fixture(dir),key=newIdentity(),backupPath=join(dir,'snapshot.sqlite');
+ const signed=await createSignedJournalBackup({journalPath:journal,backupPath,privatePem:key.privatePem,now:()=>10000});
+ assert.equal(verifySignedJournalBackup({backupPath,publicPem:key.publicPem,expectedSha256:signed.backupSha256,minCreatedAt:10000}).verified,true);
+ assert.throws(()=>verifySignedJournalBackup({backupPath,publicPem:key.publicPem,expectedSha256:'0'.repeat(64)}),/backup-pin-mismatch/);
+ assert.throws(()=>verifySignedJournalBackup({backupPath,publicPem:key.publicPem,minCreatedAt:10001}),/backup-rollback-detected/);
+ assert.throws(()=>restoreVerifiedJournalBackup({backupPath,restorePath:join(dir,'restore.sqlite'),publicPem:key.publicPem,minCreatedAt:10001}),/backup-rollback-detected/);
+ j.close();
+}));

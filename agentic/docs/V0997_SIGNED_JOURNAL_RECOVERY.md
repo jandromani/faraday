@@ -11,3 +11,7 @@
 **Security limits:** Snapshots are not encrypted by FARADAY; store in encrypted controlled storage. A valid old snapshot may be substituted unless independently pinned to a trusted latest digest. Uncertain side effects require read-only reconciliation; the restore operation NEVER calls a tool or retries an effect. No claims of distributed recovery, offsite retention or independent attestation.
 
 **Verification:** `npm run recovery:test` and GitHub Linux Node 22/24, macOS Node 24, Windows Node 24 CI when those runs complete.
+
+## Optional anti-rollback operator pins
+
+Supply an independently trusted `--expected-sha256` and/or `--min-created-at` (epoch milliseconds) to `verify` and `restore`. A matching signature alone cannot rule out substitution of an older signed snapshot. The expected digest or minimum timestamp MUST come from a separate protected record; reading them back from the backup does not provide rollback protection.

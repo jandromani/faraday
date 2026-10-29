@@ -63,21 +63,23 @@ export async function createSignedJournalBackup({journalPath,backupPath,privateP
  }catch(e){if(created){rmSync(dst,{force:true});rmSync(dst+'.receipt.json',{force:true});}throw e;}
  finally{rmSync(temp,{recursive:true,force:true});}
 }
-export function verifySignedJournalBackup({backupPath,receiptPath=backupPath+'.receipt.json',publicPem}={}){
+export function verifySignedJournalBackup({backupPath,receiptPath=backupPath+'.receipt.json',publicPem,expectedSha256,minCreatedAt}={}){
  if(typeof backupPath!=='string'||typeof receiptPath!=='string'||typeof publicPem!=='string')throw Error('invalid-backup-options');
  const b=safeFile(backupPath),r=safeFile(receiptPath,16384);
  let packet;try{packet=JSON.parse(readFileSync(r,'utf8'));}catch{throw Error('invalid-backup-manifest');}
  const manifest=checkSignature(packet,publicPem);
+ if(expectedSha256!==undefined&&(!/^[a-f0-9]{64}$/.test(expectedSha256)||manifest.backupSha256!==expectedSha256))throw Error('backup-pin-mismatch');
+ if(minCreatedAt!==undefined&&(!Number.isSafeInteger(minCreatedAt)||minCreatedAt<0||manifest.createdAt<minCreatedAt))throw Error('backup-rollback-detected');
  if(sha(readFileSync(b))!==manifest.backupSha256)throw Error('backup-hash-mismatch');
  const {operationCount}=inspect(b);
  if(operationCount!==manifest.operationCount)throw Error('backup-count-mismatch');
  return {verified:true,format:manifest.format,operationCount,backupSha256:manifest.backupSha256,executionRepeated:false};
 }
-export function restoreVerifiedJournalBackup({backupPath,receiptPath,restorePath,publicPem}={}){
+export function restoreVerifiedJournalBackup({backupPath,receiptPath,restorePath,publicPem,expectedSha256,minCreatedAt}={}){
  if(typeof restorePath!=='string'||!restorePath||typeof backupPath!=='string')throw Error('invalid-restore-options');
  const src=resolve(backupPath),dst=resolve(restorePath);
  if(src===dst||existsSync(dst)||existsSync(dst+'-wal')||existsSync(dst+'-shm'))throw Error('restore-destination-exists');
- const evidence=verifySignedJournalBackup({backupPath,receiptPath:receiptPath||backupPath+'.receipt.json',publicPem});
+ const evidence=verifySignedJournalBackup({backupPath,receiptPath:receiptPath||backupPath+'.receipt.json',publicPem,expectedSha256,minCreatedAt});
  mkdirSync(dirname(dst),{recursive:true,mode:0o700});
  copyFileSync(src,dst,constants.COPYFILE_EXCL);chmodSync(dst,0o600);
  try{if(sha(readFileSync(safeFile(dst)))!==evidence.backupSha256)throw Error('restore-hash-mismatch');if(inspect(dst).operationCount!==evidence.operationCount)throw Error('restore-validation-failed');}
