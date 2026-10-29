@@ -1,11 +1,13 @@
 /** R4 adapter capability contract: exact allowlists; metadata cannot grant runtime access. */
 const FRAMEWORKS=new Set(['langgraph','crewai','openai-agents']);
-const OPS=new Set(['read','write','execute']);
+const OPS=new Set(['read','write','execute','pay','deploy']);
+// Exact qualified resources such as invoice:demo must work with real Authority scopes.
+const RESOURCE=/^[a-z][a-z0-9_.:\/-]{0,127}$/;
 const ID=/^[a-z][a-z0-9_-]{0,63}$/;
 const isObject=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 function exact(x,keys){return isObject(x)&&Object.keys(x).length===keys.length&&keys.every(k=>Object.hasOwn(x,k));}
 function validRule(r){
- return exact(r,['tool','operation','resource'])&&[r.tool,r.resource].every(v=>typeof v==='string'&&ID.test(v))&&OPS.has(r.operation);
+ return exact(r,['tool','operation','resource'])&&typeof r.tool==='string'&&ID.test(r.tool)&&typeof r.resource==='string'&&RESOURCE.test(r.resource)&&OPS.has(r.operation);
 }
 export function validateAdapterContract(contract){
  if(!exact(contract,['version','framework','adapter','capabilities','mode']))throw Error('invalid-adapter-contract');
