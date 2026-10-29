@@ -1,3 +1,13 @@
+## FARADAY v0.99.7 — Signed journal recovery snapshots
+
+SQLite online backup, Ed25519 manifest, offline verification and restore to **a new** journal path, with no tool re-execution. Snapshot contents are **not encrypted** by FARADAY: use secure external storage and trusted signing keys. No HA/RPO/RTO guarantee.
+
+```bash
+faraday recovery backup --db journal.sqlite --out snapshot.sqlite --private-key signer.pem
+faraday recovery verify --backup-file snapshot.sqlite --public-key signer.pub.pem
+faraday recovery restore --backup-file snapshot.sqlite --out restored.sqlite --public-key signer.pub.pem
+```
+
 ## FARADAY v0.99.6 — Trust boundary / Vault adapter / rogue MCP server test
 
 The optional Vault KV v2 reader fetches a pinned secret from an explicitly configured Vault endpoint, using an operator-owned token **file** with strict permissions. Reads are fresh on each operation, fail closed and never log the token or credential. This is a **protocol adapter**, not complete Vault identity integration, lease renewal or a production secrets broker. HTTPS is required except for explicit loopback test fixtures. It is *not enabled* by default. See [pilot guide](docs/V0996_DEPLOYMENT_BOUNDARY.md).
