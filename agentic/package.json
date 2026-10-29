@@ -1,8 +1,8 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.99.4",
+  "version": "0.99.5",
   "private": true,
-  "description": "FARADAY modular architecture: Connect, Authority, Evidence, Lab, OpenTelemetry metadata and blocking assurance",
+  "description": "FARADAY Secure Developer Preview: local OAuth revocations, strict backend credential rotation and independent-witness receipt checkpoints",
   "type": "module",
   "bin": {
     "faraday": "./bin/faraday.js",
@@ -14,7 +14,7 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "smoke": "node bin/faraday.js demo",
-    "test:all": "npm test && npm run test:python && npm run smoke && npm run lab && npm run workflow && npm run workflow:eval && npm run authority && npm run authority:eval && npm run pilot && npm run pilot:eval && npm pack --dry-run && npm run release:audit && npm run timemachine:smoke && npm run benchmark:smoke && npm run oauth:eval",
+    "test:all": "npm test && npm run test:python && npm run smoke && npm run lab && npm run workflow && npm run workflow:eval && npm run authority && npm run authority:eval && npm run pilot && npm run pilot:eval && npm pack --dry-run && npm run release:audit && npm run timemachine:smoke && npm run benchmark:smoke && npm run oauth:eval && npm run trust:test",
     "lab": "node bin/faraday.js lab run",
     "lab:gate": "node bin/faraday.js lab run --fail-on-gap",
     "compat": "node bin/faraday.js compat --root .",
@@ -35,10 +35,11 @@
     "onboard:smoke": "node scripts/onboarding-smoke.mjs",
     "closure:report": "node scripts/epic-closure-report.mjs",
     "closure:test": "node --test tests/closure-acceptance.test.js",
-    "oauth:test": "node --test tests/mcp-oauth-resource.test.js",
     "oauth:eval": "node scripts/oauth-attack-evals.mjs",
+    "oauth:test": "node --test tests/mcp-oauth-resource.test.js",
     "architecture:test": "node --test tests/architecture.test.js tests/assurance-gates.test.js tests/otel-mcp.test.js tests/gateway-policy-port.test.js",
-    "assurance:ci": "node scripts/assurance-ci.mjs"
+    "assurance:ci": "node scripts/assurance-ci.mjs",
+    "trust:test": "node --test tests/oauth-revocations.test.js tests/secret-file-provider.test.js tests/evidence-checkpoint.test.js tests/mcp-oauth-resource.test.js"
   },
   "license": "Apache-2.0",
   "exports": {
@@ -76,7 +77,10 @@
     "./lab-suite": "./packages/lab/index.js",
     "./otel-mcp": "./lib/otel-mcp.js",
     "./assurance-gates": "./lib/assurance-gates.js",
-    "./gateway-policy-port": "./lib/gateway-policy-port.js"
+    "./gateway-policy-port": "./lib/gateway-policy-port.js",
+    "./oauth-revocations": "./lib/oauth-revocations.js",
+    "./secret-file-provider": "./lib/secret-file-provider.js",
+    "./evidence-checkpoint": "./lib/evidence-checkpoint.js"
   },
   "files": [
     "bin",

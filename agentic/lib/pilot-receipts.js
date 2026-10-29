@@ -20,7 +20,7 @@ export function verifyReceipt({publicPem,receipt,backendPublicPem}){
   if(!receipt||typeof receipt!=='object'||Object.keys(receipt).sort().join('|')!=='claims|signature')throw new AuthorityError('invalid-receipt');
   const {claims,signature}=receipt;
   if(!claims||claims.version!==1||!['simulated','upstream-uncertain','upstream-rejected'].includes(claims.outcome))throw new AuthorityError('invalid-receipt');
-  if(typeof signature!=='string'||!/^[A-Za-z0-9_-]+$/.test(signature)||signature.length>200)throw new AuthorityError('invalid-receipt');
+  if(typeof signature!=='string'||!/^[A-Za-z0-9_-]{86}$/.test(signature)||Buffer.from(signature,'base64url').toString('base64url')!==signature)throw new AuthorityError('invalid-receipt');
   let ok=false;try{ok=verify(null,unsigned(claims),createPublicKey(publicPem),Buffer.from(signature,'base64url'));}catch{throw new AuthorityError('invalid-receipt-signature');}
   if(!ok)throw new AuthorityError('invalid-receipt-signature');
   const backendVerified=Boolean(backendPublicPem && claims.backendAttestation &&

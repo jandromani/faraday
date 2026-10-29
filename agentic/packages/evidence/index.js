@@ -6,3 +6,4 @@ export {diffAuthority,affectedClients} from '../../lib/trust-diff.js';
 export {toSafeOtelMcpSpan} from '../../lib/otel-mcp.js';
 export {evaluateAssurance,signableAttestationDigest} from '../../lib/assurance-gates.js';
 export const EVIDENCE_API_VERSION='1.0.0-preview';
+export {createEvidenceCheckpoint,witnessEvidenceCheckpoint,verifyWitnessedEvidence} from '../../lib/evidence-checkpoint.js';
