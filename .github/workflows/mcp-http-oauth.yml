@@ -25,14 +25,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      - name: Test JWT resource and HTTP transport on Linux/macOS
-        if: runner.os != 'Windows'
+      - name: Test JWT resource validation and MCP transport
         working-directory: agentic
         run: npm run oauth:test
-      - name: Test JWT crypto boundary on Windows (HTTP socket fixture excluded pending validation)
-        if: runner.os == 'Windows'
-        working-directory: agentic
-        run: node --test --test-name-pattern="public JWKS|read scope|JWT alg" tests/mcp-oauth-resource.test.js
       - name: Verify 200 offline adversarial cases
         working-directory: agentic
         run: npm run oauth:eval
