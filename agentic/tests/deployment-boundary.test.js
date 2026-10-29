@@ -2,7 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {validateReferenceBoundary,DeploymentBoundaryError} from '../lib/deployment-boundary.js';
 function fixture(){
- const base=(networks,volumes=[])=>({networks,volumes,read_only:true,privileged:false,
+ const base=(networks,volumes=[])=>({networks,user:'1000:1000',volumes:volumes.map(({target})=>({
+  target,source:'/reference'+target,type:'bind',
+  read_only:['/app','/run/agent','/run/faraday','/run/faraday/backend-secret'].includes(target)
+})),read_only:true,privileged:false,
   cap_drop:['ALL'],security_opt:['no-new-privileges:true'],mem_limit:268435456,pids_limit:64});
  return {services:{
   'dummy-agent':base(['agent_zone'],[{target:'/app'},{target:'/run/agent'}]),
@@ -62,5 +65,23 @@ for(const [what,change] of [
  ['unexpected network',x=>{x.networks.extra={internal:false};}]
 ])test('reference contract rejects '+what,()=>{
  const x=fixture();change(x);
+ assert.throws(()=>validateReferenceBoundary(x),DeploymentBoundaryError);
+});
+
+for(const [what,mutate] of [
+ ['cap_add after cap_drop',x=>{x.services['rogue-agent'].cap_add=['SYS_ADMIN'];}],
+ ['root UID',x=>{x.services.gateway.user='0:0';}],
+ ['root GID',x=>{x.services.gateway.user='1000:0';}],
+ ['unverified named user',x=>{x.services.gateway.user='root';}],
+ ['missing nonroot identity',x=>{delete x.services.backend.user;}],
+ ['extra secret bind',x=>{x.services['rogue-agent'].volumes.push({
+   type:'bind',source:'/host/secrets',target:'/tmp/secrets',read_only:true
+ });}],
+ ['writable application bind',x=>{x.services['rogue-agent'].volumes[0].read_only=false;}],
+ ['writable gateway credential mount',x=>{x.services.gateway.volumes.find(v=>v.target==='/run/faraday').read_only=false;}],
+ ['missing mandatory mount',x=>{x.services.backend.volumes.pop();}],
+ ['duplicate app mount',x=>{x.services.backend.volumes[1].target='/app';}],
+])test('R2 deployment hardening denies '+what,()=>{
+ const x=fixture();mutate(x);
  assert.throws(()=>validateReferenceBoundary(x),DeploymentBoundaryError);
 });
