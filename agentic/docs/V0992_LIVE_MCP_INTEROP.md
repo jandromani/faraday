@@ -38,6 +38,25 @@ The workflow `mcp-live-interop.yml` also exercises Linux, macOS and Windows: `np
 
 **Exit gate:** claim only the environments whose GitHub Actions jobs pass. On failures retain E05/E06 as partially verified and publish the precise limitation.
 
+## External CI evidence — 2026-10-29
+
+[GitHub Actions run 40857495831](https://github.com/jandromani/faraday/actions/runs/40857495831): **4/4 jobs passed**. The official read-only MCP `stdio` probe observed:
+
+| Official pinned package | MCP 2026-07-28 | MCP 2025-11-25 |
+| --- | ---: | ---: |
+| Filesystem 2.0.1 | 14 tools | 14 tools |
+| Everything 2.0.1 | 22 tools | 16 tools |
+
+The different per-era tool counts were observed, not assumed. Filesystem `list_allowed_directories` was called with an explicit read-only opt-in; **no writes** were requested by the probe.
+
+| Hosted OS | Node.js | Cold install, rollback and doctor |
+| --- | --- | ---: |
+| Linux | 24.22.1 | 1,535 ms |
+| macOS | 24.21.0 | 2,349 ms |
+| Windows | 24.22.1 | 5,265 ms |
+
+These timings apply to the isolated runner fixture only; they are **not a human onboarding SLA**. The probe did not test HTTP/OAuth, prompt/resource conformance, all transports or security of arbitrary untrusted MCP servers. **E05/E06 subdeliverables passed; enterprise epics remain partially complete.**
+
 ## References
 
 - Official MCP specification 2026-07-28: https://modelcontextprotocol.io/specification/2026-07-28
