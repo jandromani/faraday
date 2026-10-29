@@ -1,3 +1,15 @@
+## FARADAY v0.99.3 — MCP Streamable HTTP + OAuth Resource Boundary
+
+**New opt-in security**: Pinned Ed25519/RS256 JWT access-token verification, RFC 9728 metadata, read/execute scopes, bearer challenges, exact issuer/audience and JWT-subject-to-agent binding. The existing FARADAY Ed25519 capability, policy, operator approvals, idempotency and signed receipts still apply to synthetic `tools/call`. MCP 2026 `server/discover` uses the spec-correct result envelope. This is an OAuth **resource-server verifier**, NOT an authorization server, user login or production deployment.
+
+```bash
+npm run oauth:test     # real loopback HTTP integration tests
+npm run oauth:eval     # 200 deterministic signed-token attack cases
+npm run test:all       # full Graph/Authority/MCP regression
+```
+
+See [Security scope and pilot config](docs/V0993_HTTP_OAUTH.md). OAuth is an **opt-in** boundary on the existing offline pilot; default operation does not become secure for remote users automatically.
+
 ## v0.99.2 — Active MCP compatibility & cold onboarding
 
 The read-only by default live stdio probe supports modern `server/discover` (2026-07-28), legacy `initialize` (2025-11-25) and paginated `tools/list` on configured servers. Run `faraday compat probe --config .mcp.json --server NAME` to discover the real protocol era without executing tools. The CI tests pinned upstream official MCP filesystem/everything servers; another CI matrix validates offline install, rollback and diagnostics across operating systems. See [docs/V0992_LIVE_MCP_INTEROP.md](docs/V0992_LIVE_MCP_INTEROP.md) for limitations and opting in to a *named* safe tool call. **Not an MCP conformance certification.**

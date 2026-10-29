@@ -1,0 +1,36 @@
+name: FARADAY MCP HTTP OAuth Boundary
+on:
+  push:
+    paths:
+      - 'agentic/**'
+      - '.github/workflows/mcp-http-oauth.yml'
+  pull_request:
+    paths:
+      - 'agentic/**'
+      - '.github/workflows/mcp-http-oauth.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  oauth-boundary:
+    name: OAuth / ${{ matrix.os }} / Node ${{ matrix.node }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['22', '24']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Test JWT resource validation and MCP transport
+        working-directory: agentic
+        run: npm run oauth:test
+      - name: Verify 200 offline adversarial cases
+        working-directory: agentic
+        run: npm run oauth:eval
+      - name: Validate release package visibility
+        working-directory: agentic
+        run: npm pack --dry-run
