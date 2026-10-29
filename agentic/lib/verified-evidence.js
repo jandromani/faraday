@@ -58,6 +58,6 @@ export function verifyEvidenceBundle({root,manifestPath,profile,expectedCommit}=
   // Ignore untrusted booleans; the collector has actually checked each file.
   const input=profile==='r2'?{...report,artifactDigestsVerified:true}:{...report,evidenceIndependentlyVerified:true};
   const result=profile==='r2'?evaluateR2Evidence(input,{expectedCommit}):evaluateR3Manifest(input,{expectedCommit});
-  return {passed:result.passed,blockers:result.blockers,profile,commit:expectedCommit,filesChecked:seen.size,
+  return {integrityPassed:true,manifestComplete:result.passed,releaseGatePassed:false,blockers:result.blockers,profile,commit:expectedCommit,filesChecked:seen.size,
     integrityVerified:true,executionProvenanceVerified:false,enterpriseCertified:false};
 }
