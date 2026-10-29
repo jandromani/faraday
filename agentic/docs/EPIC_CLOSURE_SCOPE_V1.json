@@ -1,0 +1,328 @@
+{
+  "format": "faraday-epic-closure-contract",
+  "version": 1,
+  "baseline": "v0.99.0",
+  "target": "v0.99.1",
+  "scope": "Developer Preview only",
+  "enterpriseGuaranteed": false,
+  "policy": "A passing gate means one defined technical acceptance check. Never label enterprise epic closed without additional external evidence.",
+  "candidates": [
+    {
+      "id": "E01",
+      "name": "Threat model del piloto",
+      "track": "candidate-after-validation",
+      "scope": "Inventario de amenazas y vínculos con controles/test del laboratorio",
+      "acceptance": [
+        "Run passing acceptance test [E01] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "No STRIDE integral, no auditoría independiente"
+      ]
+    },
+    {
+      "id": "E05",
+      "name": "Instalador reversible de workspace",
+      "track": "candidate-after-validation",
+      "scope": "Init, doctor, dry-run, install/uninstall con backups privados y CI multisoporte",
+      "acceptance": [
+        "Run passing acceptance test [E05] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "No distribución certificada ni instalación universal"
+      ]
+    },
+    {
+      "id": "E06",
+      "name": "Subconjunto MCP soportado",
+      "track": "candidate-after-validation",
+      "scope": "Inventario stdio, bridge HTTP; legacy SSE explícitamente no compatible",
+      "acceptance": [
+        "Run passing acceptance test [E06] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "No conformidad completa de MCP/OAuth"
+      ]
+    },
+    {
+      "id": "E07",
+      "name": "Adaptadores opt-in SDK",
+      "track": "scoped-closure-candidate",
+      "scope": "Instrumentación voluntaria LangGraph/CrewAI/OpenAI SDK y tests publicados",
+      "acceptance": [
+        "Run passing acceptance test [E07] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "No instrumentación obligatoria ni compatibilidad de cada versión"
+      ]
+    },
+    {
+      "id": "E08",
+      "name": "Grafo MCP metadata-only",
+      "track": "scoped-closure-candidate",
+      "scope": "Inventario, topología, contratos y ocultación de descripciones y secretos",
+      "acceptance": [
+        "Run passing acceptance test [E08] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "No grafo causal universal ni análisis estático de código"
+      ]
+    },
+    {
+      "id": "E10",
+      "name": "Autoridad sintética por capacidad",
+      "track": "scoped-closure-candidate",
+      "scope": "Ed25519, PoP, ámbito exacto y rechazo de replay dentro del piloto",
+      "acceptance": [
+        "Run passing acceptance test [E10] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "No SPIFFE, KMS ni políticas distribuidas"
+      ]
+    },
+    {
+      "id": "E14",
+      "name": "Recibos piloto sintético",
+      "track": "scoped-closure-candidate",
+      "scope": "Firmas independientes gateway/backend en ejecución sintética",
+      "acceptance": [
+        "Run passing acceptance test [E14] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "No atestación independiente del mundo real"
+      ]
+    },
+    {
+      "id": "E17",
+      "name": "Cuotas locales",
+      "track": "candidate-after-validation",
+      "scope": "SQLite por agente, modo fail-closed y persistencia",
+      "acceptance": [
+        "Run passing acceptance test [E17] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "Sin cuotas distribuidas ni multi-tenant"
+      ]
+    },
+    {
+      "id": "E20",
+      "name": "Preflight estructural",
+      "track": "candidate-after-validation",
+      "scope": "TrustDiff y cambios rompientes de contratos, sin decidir con IA",
+      "acceptance": [
+        "Run passing acceptance test [E20] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "No simulación de efectos ni causalidad universal"
+      ]
+    },
+    {
+      "id": "E21",
+      "name": "TimeMachine sintético",
+      "track": "scoped-closure-candidate",
+      "scope": "Replay y verificación SHA-256 100% offline",
+      "acceptance": [
+        "Run passing acceptance test [E21] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "Sin ingest/replay seguro de workflows productivos"
+      ]
+    },
+    {
+      "id": "E23",
+      "name": "Fábrica de agentes dummy",
+      "track": "scoped-closure-candidate",
+      "scope": "12 actores sintéticos, corpus determinista 1000 con GAP explícitos",
+      "acceptance": [
+        "Run passing acceptance test [E23] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "No 12 agentes LLM reales ni simulador de multiagentes completo"
+      ]
+    },
+    {
+      "id": "E25",
+      "name": "Matriz SDK / compatibilidad",
+      "track": "scoped-closure-candidate",
+      "scope": "Tres smokes SDK en GitHub y diferenciación entre config y conformidad",
+      "acceptance": [
+        "Run passing acceptance test [E25] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "No certificación de clientes MCP ni matriz OS exhaustiva"
+      ]
+    },
+    {
+      "id": "E26",
+      "name": "Mutación adversarial reproducible",
+      "track": "candidate-after-validation",
+      "scope": "760 mutaciones previas y 1000 escenarios seeded; los GAP no son PASS",
+      "acceptance": [
+        "Run passing acceptance test [E26] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "No fuzzing guiado por cobertura ni chaos distribuido"
+      ]
+    },
+    {
+      "id": "E27",
+      "name": "Microbenchmarks offline",
+      "track": "scoped-closure-candidate",
+      "scope": "Mediana, p95 y tamaños con condiciones documentadas",
+      "acceptance": [
+        "Run passing acceptance test [E27] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "No latencia gateway real, throughput SLA ni hardware controlado"
+      ]
+    },
+    {
+      "id": "E28",
+      "name": "Auditoría npm/Inventario SPDX",
+      "track": "candidate-after-validation",
+      "scope": "SPDX, SHA-256 y filtrado básico de secretos en el paquete",
+      "acceptance": [
+        "Run passing acceptance test [E28] on supported runtime",
+        "Existing regression suite must stay green",
+        "CI artifact records result and commit SHA"
+      ],
+      "exclusions": [
+        "Sin firma/SLSA ni certificación supply chain"
+      ]
+    }
+  ],
+  "threats": [
+    {
+      "id": "T01",
+      "risk": "Credencial copiada por un agente",
+      "control": "PoP Ed25519",
+      "test": "tests/authority.test.js",
+      "residualRisk": "Ausencia de atestación de workload"
+    },
+    {
+      "id": "T02",
+      "risk": "Autorización reutilizada",
+      "control": "Ledger transaccional de nonce",
+      "test": "tests/authority.test.js",
+      "residualRisk": "Ledger no distribuido"
+    },
+    {
+      "id": "T03",
+      "risk": "Argumentos cambiados después de aprobación",
+      "control": "Ámbito exacto firmado",
+      "test": "tests/approvals.test.js",
+      "residualRisk": "No evaluación semántica"
+    },
+    {
+      "id": "T04",
+      "risk": "Suplantación de aprobador",
+      "control": "Dos firmas de operadores sintéticos",
+      "test": "tests/approvals.test.js",
+      "residualRisk": "Operadores no humanos verificados"
+    },
+    {
+      "id": "T05",
+      "risk": "Acceso directo al backend",
+      "control": "Credencial de servicio y aislamiento Docker",
+      "test": "tests/pilot.test.js",
+      "residualRisk": "No garantía en redes arbitrarias"
+    },
+    {
+      "id": "T06",
+      "risk": "SSRF y DNS rebinding",
+      "control": "Guard DNS y validación egress",
+      "test": "tests/egress-guard.test.js",
+      "residualRisk": "Loopback explícito sigue siendo sensible"
+    },
+    {
+      "id": "T07",
+      "risk": "Credenciales en logs o contratos",
+      "control": "Redacción de estructuras y no almacenar argumentos",
+      "test": "tests/contracts.test.js",
+      "residualRisk": "Metadatos topológicos sensibles"
+    },
+    {
+      "id": "T08",
+      "risk": "Herramienta eliminada en update",
+      "control": "Contracts diff estructural",
+      "test": "tests/contracts.test.js",
+      "residualRisk": "Limitado a fields normalizados"
+    },
+    {
+      "id": "T09",
+      "risk": "Herramienta no allowlisted",
+      "control": "ToolPolicy default deny opt-in",
+      "test": "tests/security-policy.test.js",
+      "residualRisk": "Rutas directas no interceptadas"
+    },
+    {
+      "id": "T10",
+      "risk": "Consumo excesivo",
+      "control": "LocalBudget fail-closed",
+      "test": "tests/budget.test.js",
+      "residualRisk": "No cuota distribuida"
+    },
+    {
+      "id": "T11",
+      "risk": "Eventos de incidentes manipulados",
+      "control": "Hash chain Sentinel",
+      "test": "tests/sentinel.test.js",
+      "residualRisk": "SQLite editable por usuario privilegiado"
+    },
+    {
+      "id": "T12",
+      "risk": "Replay involuntario en debugging",
+      "control": "TimeMachine sin efectos reales",
+      "test": "tests/timemachine.test.js",
+      "residualRisk": "No replay de herramientas reales"
+    },
+    {
+      "id": "T13",
+      "risk": "Paquete npm filtra claves",
+      "control": "Auditoría de nombres y patrones",
+      "test": "tests/release-audit.test.js",
+      "residualRisk": "No prueba frente a toda clase de credencial"
+    },
+    {
+      "id": "T14",
+      "risk": "Modelo propone acción fuera de scope",
+      "control": "Validador de plan determinista",
+      "test": "tests/workflow-free-planner.test.js",
+      "residualRisk": "Prompt injection externa no totalmente mitigada"
+    },
+    {
+      "id": "T15",
+      "risk": "Duplicados por carreras",
+      "control": "Journal y store idempotente",
+      "test": "tests/pilot.test.js",
+      "residualRisk": "Transacciones externas fuera de control"
+    }
+  ]
+}
