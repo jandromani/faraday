@@ -25,13 +25,15 @@ import {readKeyFile} from '../lib/authority.js';
 import {captureSynthetic,readSyntheticTrace,replaySynthetic,diffSynthetic,readReplayPolicy} from '../lib/timemachine.js';
 import {runBenchmarks} from '../lib/benchmarks.js';
 import {inspectRecovery} from '../lib/recovery-inspector.js';
+import {ingestAdapterFile} from '../lib/adapter-ingest.js';
 import {readFileSync} from 'node:fs';
 import {writeFileSync, mkdirSync} from 'node:fs';
 
 const appPath = fileURLToPath(import.meta.url);
-const usage = `FARADAY Graph 0.97.0 — local MCP discovery, observation, contracts and setup
+const usage = `FARADAY Graph 0.98.0 — local MCP discovery, observation, contracts and setup
 
 Usage:
+  faraday adapters ingest --file TRACE.jsonl [--db PATH]
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
   faraday graph [--db PATH] [--format json|mermaid]
   faraday proxy --config FILE --server NAME [--db PATH] [--debug-stderr] [--policy FILE]
@@ -85,7 +87,7 @@ function argsOf(args) {
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
     if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion','fail-on-divergence'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms'].includes(key)) throw new Error('Unknown option');
+    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms','file'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -96,7 +98,10 @@ async function main() {
   const [cmd,...argv]=process.argv.slice(2);
   const flags=argsOf(argv);
   if (!cmd || cmd === 'help' || cmd === '--help') {process.stdout.write(usage);return;}
-  if(cmd==='timemachine'){
+  if(cmd==='adapters'){
+    if(flags._[0]!=='ingest'||!flags.file)throw Error('Usage: faraday adapters ingest --file TRACE.jsonl [--db PATH]');
+    process.stdout.write(JSON.stringify(ingestAdapterFile({file:flags.file,db:fileDB(flags)}),null,2)+'\n');
+  } else if(cmd==='timemachine'){
     const action=flags._[0];let report;
     if(action==='capture'){
       const seed=flags.seed===undefined?42:Number(flags.seed);
