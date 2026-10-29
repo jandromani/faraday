@@ -15,6 +15,7 @@ import {auditWorkspace} from '../lib/security-audit.js';
 import {DUMMY_AGENTS, DISTRIBUTION, runLab, labConfig} from '../lib/lab.js';
 import {diffAuthority, readPolicy, affectedClients} from '../lib/trust-diff.js';
 import {compatibilityReport} from '../lib/compatibility.js';
+import {probeStdio} from '../lib/mcp-live-probe.js';
 import {runAuthorityDemo,runAuthorityEvaluations} from '../lib/authority-demo.js';
 import {runPilotDemo} from '../lib/pilot-demo.js';
 import {runPilotEvaluations} from '../lib/pilot-evals.js';
@@ -32,7 +33,7 @@ import {readFileSync} from 'node:fs';
 import {writeFileSync, mkdirSync} from 'node:fs';
 
 const appPath = fileURLToPath(import.meta.url);
-const usage = `FARADAY Graph 0.99.0 — local MCP discovery, observation, contracts and setup
+const usage = `FARADAY Graph 0.99.2 — local MCP discovery, observation, contracts and setup
 
 Usage:
   faraday workflow demo [--out TRACE.json]
@@ -61,6 +62,7 @@ Usage:
   faraday lab run [--seed 42] [--limit 1000] [--out FILE] [--fail-on-gap]
   faraday lab fixture --out DIR
   faraday compat [--root PATH] [--include-global] [--json]
+  faraday compat probe --config FILE --server NAME [--protocol auto|modern|legacy] [--timeout-ms 8000] [--out FILE] [--call-tool NAME --allow-call]
   faraday trust diff --base POLICY --current POLICY [--db PATH] [--fail-on-expansion]
   faraday authority demo # synthetic end-to-end gateway authorization
   faraday authority eval [--limit 100] [--out FILE]
@@ -92,8 +94,8 @@ function argsOf(args) {
     const t=args[i];
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
-    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion','fail-on-divergence','send-intent'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms','file'].includes(key)) throw new Error('Unknown option');
+    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion','fail-on-divergence','send-intent','allow-call'].includes(key)) {out[key]=true;continue;}
+    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms','file','protocol','timeout-ms','call-tool','max-pages'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -225,7 +227,14 @@ async function main() {
       if(report.summary.failed || (flags['fail-on-gap']&&report.summary.gaps))process.exitCode=2;
     } else throw Error('Use lab agents or lab run');
   } else if(cmd==='compat') {
-    process.stdout.write(JSON.stringify(compatibilityReport({root:flags.root,includeGlobal:!!flags['include-global']}),null,2)+'\n');
+    if(flags._[0]==='probe'){
+      const report=await probeStdio({configFile:flags.config,server:flags.server,protocol:flags.protocol||'auto',
+        timeoutMs:flags['timeout-ms']===undefined?8000:Number(flags['timeout-ms']),maxPages:flags['max-pages']===undefined?5:Number(flags['max-pages']),
+        callTool:flags['call-tool']||null,allowCall:!!flags['allow-call']});
+      if(flags.out)writeFileSync(resolve(flags.out),JSON.stringify(report,null,2)+'\n',{mode:0o600,flag:'wx'});
+      process.stdout.write(JSON.stringify(report,null,2)+'\n');
+      if(report.result!=='pass')process.exitCode=2;
+    }else process.stdout.write(JSON.stringify(compatibilityReport({root:flags.root,includeGlobal:!!flags['include-global']}),null,2)+'\n');
   } else if(cmd==='trust') {
     if(flags._[0]!=='diff'||!flags.base||!flags.current)throw Error('Use trust diff --base --current');
     const report=diffAuthority(readPolicy(flags.base),readPolicy(flags.current));

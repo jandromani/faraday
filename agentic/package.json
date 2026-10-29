@@ -1,8 +1,8 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.99.1",
+  "version": "0.99.2",
   "private": true,
-  "description": "FARADAY 15 scoped epic acceptance gates with multi-OS CI and honest Developer Preview status",
+  "description": "FARADAY active MCP stdio interoperability probing for 2025 and 2026 protocol eras",
   "type": "module",
   "bin": {
     "faraday": "./bin/faraday.js",
@@ -31,6 +31,8 @@
     "test:python": "PYTHONPATH=python python3 -m unittest discover -s python/tests -v",
     "workflow": "node bin/faraday.js workflow demo",
     "workflow:eval": "node bin/faraday.js workflow eval --limit 100",
+    "mcp:probe:test": "node --test tests/mcp-live-probe.test.js",
+    "onboard:smoke": "node scripts/onboarding-smoke.mjs",
     "closure:report": "node scripts/epic-closure-report.mjs",
     "closure:test": "node --test tests/closure-acceptance.test.js"
   },
@@ -43,6 +45,7 @@
     "./egress": "./lib/egress-guard.js",
     "./lab": "./lib/lab.js",
     "./trust-diff": "./lib/trust-diff.js",
+    "./mcp-live-probe": "./lib/mcp-live-probe.js",
     "./compatibility": "./lib/compatibility.js",
     "./authority": "./lib/authority.js",
     "./gateway": "./lib/authority-gateway.js",
