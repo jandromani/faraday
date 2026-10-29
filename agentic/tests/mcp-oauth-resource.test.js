@@ -32,7 +32,7 @@ test('JWT alg confusion and signature tampering fail closed',()=>{
  const arr=token(k).split('.');arr[2]='A'+arr[2].slice(1);if(arr[2]===token(k).split('.')[2])arr[2]='B'+arr[2].slice(1);
  assert.throws(()=>v.verifyAuthorization('Bearer '+arr.join('.'),'mcp:tools:read'),/invalid_token/);
 });
-async function serve(t,s){await new Promise(resolve=>s.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>s.close(resolve)));return 'http://127.0.0.1:'+s.address().port;}
+async function serve(t,s){await new Promise(resolve=>s.listen(0,'127.0.0.1',resolve));t.after(()=>new Promise(resolve=>{s.close(resolve);s.closeAllConnections();}));return 'http://127.0.0.1:'+s.address().port;}
 async function system(t){
  const dir=mkdtempSync(join(tmpdir(),'faraday-http-oauth-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));
  const f=fixture(dir),receipt=newIdentity(),backKey=newIdentity(),journal=new ExecutionJournal(join(dir,'journal.sqlite')),
