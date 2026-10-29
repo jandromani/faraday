@@ -1,5 +1,13 @@
 # FARADAY — Estado verificado del roadmap (32 épicas)
 
+## Actualización v0.99.6 — Ampliación candidata E11/E12/E13
+
+- **Estado:** rama de desarrollo `feature/v0996-vault-rogue-isolation`; pendiente de CI y merge. **No incrementar la nota consolidada hasta pasar pruebas remotas**.
+- **E12:** interfaz Vault KV v2 para backend/gateway con lectura de credencial en cada solicitud, token-file POSIX 0600, límites de red y JSON, fallo cerrado y rotación de versiones. No hay workload auth ni política de leases.
+- **E11/E13:** comprobación de topología Compose efectiva y un agente Docker hostil, sin claves, que intenta alcance directo del backend y ejecución MCP falsificada. No demuestra no-bypass fuera de esta topología.
+- **Evidencia pendiente:** CI que ejecute Vault oficial en modo dev y despliegue Docker con ambos agentes; `agentic/docs/V0996_DEPLOYMENT_BOUNDARY.md` documenta límites.
+
+
 ## Actualización v0.99.5 — revocación, rotación y evidencias testificadas (2026-10-29)
 
 - **E09/E10:** `LocalOAuthRevocations` opt-in por `jti`, `sub` y `client_id`, SQLite persistente y comprobación efectiva por solicitud HTTP; ausencia de `jti` o fallo del registro deniega. `PinnedOAuthResource.replacePublicJwks` sustituye de forma atómica un conjunto validado de claves **cuando un operador invoca la API**. Sin IdP ni revocación distribuida.

@@ -1,3 +1,11 @@
+## FARADAY v0.99.6 — Trust boundary and Vault KV v2 (candidate)
+
+This release adds an **optional** Vault KV v2 read-only adapter (a token file with restricted permissions, no redirect, no stale credential fallback) and a network-attacker test for the Docker reference pilot. A topology checker validates the **effective** Docker Compose configuration before deploying the fixture. A separate CI job is set up for the official HashiCorp Vault dev container.
+
+**Verified locally:** the Node regression plus Vault and deployment-configuration negative tests. **Pending remote:** Docker rogue-agent test and official Vault container job. This version is not production-ready and does not claim enterprise no-bypass.
+
+See [deployment boundary guide](docs/V0996_DEPLOYMENT_BOUNDARY.md).
+
 ## FARADAY v0.99.5 — Local trust hardening
 
 - Persistent **opt-in OAuth revocation** for tokens, agents and OAuth clients. Every token must carry `jti` when configured; revocation denies the tool call before it reaches the backend.
