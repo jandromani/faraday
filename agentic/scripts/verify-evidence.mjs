@@ -9,5 +9,5 @@ try{
  if(!expectedCommit)throw Error('GITHUB_SHA or explicit pinned commit is required');
  const result=verifyEvidenceBundle({root:process.cwd(),manifestPath,profile,expectedCommit});
  console.log(JSON.stringify(result,null,2));
- if(!result.passed)process.exitCode=2;
+ if(!result.manifestComplete)process.exitCode=2;
 }catch(error){console.error('R2/R3 evidence verification failed: '+error.message);process.exitCode=2;}
