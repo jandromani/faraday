@@ -60,9 +60,9 @@ test('argument tampering denied before side effect',async t=>{
 test('missing proof is denied without forwarding',async t=>{
   const x=await system(t);assert.equal((await post(x.url,call())).status,403);assert.equal(x.store.count(),0);
 });
-test('MCP init and tools list work with 2026 transport fields',async t=>{
-  const x=await system(t);const init=await post(x.url,rpc('initialize',{protocolVersion:VERSION,capabilities:{},clientInfo:{name:'test',version:'0.1'}}));
-  assert.equal(init.status,200);assert.equal(init.json.result.protocolVersion,VERSION);
+test('MCP server/discover and tools list work with 2026 transport fields',async t=>{
+  const x=await system(t);const init=await post(x.url,rpc('server/discover'));
+  assert.equal(init.status,200);assert.deepEqual(init.json.result.supportedVersions,[VERSION,'2025-11-25']);
   const list=await post(x.url,rpc('tools/list'));assert.equal(list.status,200);assert.equal(list.json.result.tools[0].name,'pay_invoice');
 });
 test('legacy 2025 protocol version supported for tool calls',async t=>{
