@@ -313,3 +313,17 @@ faraday ai graph --send-metadata --model google/gemma-4-31b-it:free
 **Privacy:** external transmission requires `--send-metadata`; offline preview is always available without a key. Only graph node/edge labels or normalized contract-diff metadata are eligible for the prompt. These labels may still reveal internal system names, so review the preview before consenting, especially for enterprise/customer systems. No raw tool arguments, tool responses, prompts, credentials, or source code are intentionally sent. LLM explanations are not proof of correctness or a security authorization decision.
 
 **Provider availability:** the connected BIWE service also has authenticated OpenAI, Hugging Face and Gemini providers, but API access does **not** imply free inference. They are deliberately not enabled in this strict zero-spend CLI until a verifiable, project-level zero-charge enforcement mechanism exists.
+
+## v0.99 — Full synthetic agent workflow + offline evidence
+
+New safe integration: a dummy or opt-in OpenRouter **verified free** text model suggests a single synthetic fake-invoice tool call. A trusted issuer signs a constrained capability, two **synthetic fixture approvers** sign the same intent, and the MCP gateway enforces the policy before calling a credential-isolated backend. The gateway and backend both sign their evidence. Offline verification does not re-run tools.
+
+```bash
+faraday workflow demo --out local-evidence.json
+faraday workflow verify --trace local-evidence.json
+faraday workflow eval --limit 100
+# Optional: only after configuring your own key privately; can be rate limited
+faraday workflow live --send-intent --model openrouter/free
+```
+
+This is not a general agent that can move funds, perform arbitrary operations or self-authorize; it is intentionally limited to a synthetic fixture. See [v0.99 threat model and instructions](docs/V099_E2E_WORKFLOW.md).

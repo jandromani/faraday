@@ -26,13 +26,19 @@ import {captureSynthetic,readSyntheticTrace,replaySynthetic,diffSynthetic,readRe
 import {runBenchmarks} from '../lib/benchmarks.js';
 import {inspectRecovery} from '../lib/recovery-inspector.js';
 import {ingestAdapterFile} from '../lib/adapter-ingest.js';
+import {runSyntheticWorkflow,runWorkflowEvaluations} from '../lib/workflow-e2e.js';
+import {readWorkflowTrace,verifyWorkflowTrace} from '../lib/workflow-trace.js';
 import {readFileSync} from 'node:fs';
 import {writeFileSync, mkdirSync} from 'node:fs';
 
 const appPath = fileURLToPath(import.meta.url);
-const usage = `FARADAY Graph 0.98.0 — local MCP discovery, observation, contracts and setup
+const usage = `FARADAY Graph 0.99.0 — local MCP discovery, observation, contracts and setup
 
 Usage:
+  faraday workflow demo [--out TRACE.json]
+  faraday workflow live --send-intent [--model FREE_MODEL] [--out TRACE.json]
+  faraday workflow verify --trace TRACE.json
+  faraday workflow eval [--limit 100] [--out FILE]
   faraday adapters ingest --file TRACE.jsonl [--db PATH]
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
   faraday graph [--db PATH] [--format json|mermaid]
@@ -86,7 +92,7 @@ function argsOf(args) {
     const t=args[i];
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
-    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion','fail-on-divergence'].includes(key)) {out[key]=true;continue;}
+    if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion','fail-on-divergence','send-intent'].includes(key)) {out[key]=true;continue;}
     if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms','file'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
@@ -98,7 +104,26 @@ async function main() {
   const [cmd,...argv]=process.argv.slice(2);
   const flags=argsOf(argv);
   if (!cmd || cmd === 'help' || cmd === '--help') {process.stdout.write(usage);return;}
-  if(cmd==='adapters'){
+  if(cmd==='workflow'){
+    const action=flags._[0];
+    if(action==='demo'||action==='live'){
+      if(action==='live'&&!flags['send-intent'])throw Error('Live inference requires explicit --send-intent');
+      const output=await runSyntheticWorkflow({live:action==='live',consent:!!flags['send-intent'],model:flags.model});
+      if(flags.out)writeFileSync(resolve(flags.out),JSON.stringify(output.trace,null,2)+'\n',{mode:0o600,flag:'wx'});
+      process.stdout.write(JSON.stringify({kind:'faraday-e2e-workflow',scenario:output.scenario,status:output.status,model:output.model,
+        backendOperations:output.backendTotal,verification:output.validation,traceFile:flags.out?resolve(flags.out):null},null,2)+'\n');
+      if(output.status!=='simulated')process.exitCode=2;
+    }else if(action==='verify'){
+      if(!flags.trace)throw Error('workflow verify requires --trace');
+      const check=verifyWorkflowTrace(readWorkflowTrace(resolve(flags.trace)));
+      process.stdout.write(JSON.stringify(check,null,2)+'\n');
+    }else if(action==='eval'){
+      const report=await runWorkflowEvaluations({limit:flags.limit===undefined?100:Number(flags.limit)});
+      if(flags.out)writeFileSync(resolve(flags.out),JSON.stringify(report,null,2)+'\n',{mode:0o600,flag:'wx'});
+      process.stdout.write(JSON.stringify(report.summary,null,2)+'\n');
+      if(report.summary.failed)process.exitCode=2;
+    }else throw Error('Use workflow demo|live|verify|eval');
+  }else if(cmd==='adapters'){
     if(flags._[0]!=='ingest'||!flags.file)throw Error('Usage: faraday adapters ingest --file TRACE.jsonl [--db PATH]');
     process.stdout.write(JSON.stringify(ingestAdapterFile({file:flags.file,db:fileDB(flags)}),null,2)+'\n');
   } else if(cmd==='timemachine'){
