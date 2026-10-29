@@ -66,10 +66,38 @@ jobs:
       - name: Verify offline package onboarding without weakening Windows ACL policy
         working-directory: agentic
         run: npm run onboard:smoke
+  vault-least-privilege:
+    name: R1 real Vault AppRole least-privilege and revocation
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Start disposable official Vault dev instance
+        run: >-
+          docker run -d --rm --name faraday-r1-vault
+          -p 127.0.0.1:18200:8200
+          -e VAULT_DEV_ROOT_TOKEN_ID=faraday-ci-dev-root-token-not-production
+          -e VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+          hashicorp/vault:1.20.4 server -dev
+      - name: Prove restricted AppRole, forbidden paths and token revocation
+        working-directory: agentic
+        env:
+          FARADAY_TEST_VAULT_TOKEN: faraday-ci-dev-root-token-not-production
+          FARADAY_TEST_VAULT_URL: http://127.0.0.1:18200
+        run: node scripts/vault-dev-smoke.mjs
+      - name: Dispose of Vault
+        if: always()
+        run: docker rm -f faraday-r1-vault || true
   attest-candidate:
     name: R1 candidate, exact archive/SBOM verification and Sigstore provenance
     if: github.ref == 'refs/heads/master'
-    needs: [regression-and-boundary, official-client]
+    needs: [regression-and-boundary, official-client, vault-least-privilege]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
