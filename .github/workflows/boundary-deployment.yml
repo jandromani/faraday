@@ -41,7 +41,7 @@ jobs:
           node-version: '22.16.0'
       - run: npm run pilot:docker
   vault-official-dev:
-    name: Official HashiCorp Vault KV v2 dev-mode protocol test
+    name: Official Vault AppRole restricted KVv2 + rotation/revocation
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -58,7 +58,7 @@ jobs:
           -e VAULT_DEV_ROOT_TOKEN_ID=faraday-ci-dev-root-token-not-production
           -e VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
           hashicorp/vault:1.20.4 server -dev
-      - name: Test Vault read, rotate and revoke against real API
+      - name: Verify AppRole least privilege, denied paths, secret rotation and revocation
         env:
           FARADAY_TEST_VAULT_TOKEN: faraday-ci-dev-root-token-not-production
           FARADAY_TEST_VAULT_URL: http://127.0.0.1:18200
