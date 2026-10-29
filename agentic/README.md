@@ -1,3 +1,19 @@
+## FARADAY v0.98 — optional Python Framework Adapters
+
+Adapter modules for **LangGraph**, **CrewAI**, and **OpenAI Agents SDK** use documented tool/node/hook APIs and a shared metadata-only JSONL schema. The Node CLI imports their traces into the existing SQLite graph. No model API calls, credentials, monkey patches or network access are required for the included dummy tests. **This does not create a mandatory security boundary.**
+
+```bash
+cd agentic
+npm run test:all
+PYTHONPATH=python python3 python/tests/sdk_smoke.py langgraph # if LangGraph installed
+faraday adapters ingest --file .faraday/langgraph.jsonl --db .faraday/graph.sqlite
+faraday graph --db .faraday/graph.sqlite --format mermaid
+```
+
+Details, code samples and support caveats: [docs/V098_FRAMEWORK_ADAPTERS.md](docs/V098_FRAMEWORK_ADAPTERS.md).
+
+---
+
 # FARADAY Graph — v0.95 Secure Pilot
 
 **Build 0095:** protected MCP JSON-RPC tool calls, durable synthetic backend idempotency,

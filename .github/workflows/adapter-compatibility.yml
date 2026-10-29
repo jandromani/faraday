@@ -1,0 +1,36 @@
+name: FARADAY optional real-SDK adapter compatibility
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'agentic/python/**'
+      - 'agentic/lib/adapter-ingest.js'
+      - '.github/workflows/adapter-compatibility.yml'
+permissions:
+  contents: read
+jobs:
+  adapter-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - sdk: langgraph
+            package: langgraph
+          - sdk: openai
+            package: openai-agents
+          - sdk: crewai
+            package: crewai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install only selected SDK (no model API keys)
+        run: python -m pip install --disable-pip-version-check '${{ matrix.package }}'
+      - name: Run optional real-SDK smoke
+        working-directory: agentic
+        env:
+          PYTHONPATH: python
+        run: python python/tests/sdk_smoke.py '${{ matrix.sdk }}'
