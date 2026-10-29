@@ -1,5 +1,17 @@
 # FARADAY — Estado verificado del roadmap (32 épicas)
 
+## Actualización v0.99.4 — Decisiones arquitectónicas A–D (2026-10-29)
+
+**PR #10 fusionada:** https://github.com/jandromani/faraday/pull/10. Commit de merge `310aadb3`. La release establece nuevos límites de arquitectura y gates verificables; **no** cierra nuevas épicas empresariales completas ni certifica seguridad.
+
+- **A (E02/E07/E08/E14/E23/E29):** cuatro APIs internas y versionadas: Connect, Authority, Evidence y Lab. Son *facades* sobre `lib/*` con compatibilidad legacy, **no servicios independientes**. [ADR-001](../agentic/docs/ADR-001-FOUR-COMPONENTS.md).
+- **B (E02/E10/E11/E13):** comparación formal de agentgateway vs Envoy ext_authz. Puerto opcional de decisión externa con rechazo ante errores o timeouts; **no integrado en el gateway de ejecución** para evitar una garantía de no-bypass falsa. [ADR-002](../agentic/docs/ADR-002-GATEWAY-MAKE-OR-BUY.md).
+- **C (E01/E03/E04/E08/E28):** mapa OWASP ASI01–ASI10 con riesgos residuales, futura interoperabilidad OWASP ACS y proyección de spans MCP OpenTelemetry metadata-only. **No** se afirma conformidad ACS, OTLP o OWASP. [ADR-003](../agentic/docs/ADR-003-STANDARDS-TELEMETRY.md).
+- **D (E03/E24/E26/E27/E28):** cuatro clases de evidencia separadas; fallo de bypass bloquea *Developer Preview* independientemente del número de unit tests; `enterprise` exige firma externa verificada con raíz de confianza. CI con pruebas Node, OAuth y Docker. [ADR-004](../agentic/docs/ADR-004-ASSURANCE-GATES.md).
+- **Validación:** 228/228 tests Node y regresión total local; CI `FARADAY Architecture and Blocking Assurance` verde en la rama de PR. La CI en master se ejecuta después del merge.
+- **Operación pendiente:** hacer obligatorio el nuevo job en GitHub branch protection/rulesets desde una cuenta administradora. Añadir el workflow no activa automáticamente el bloqueo en las reglas de rama.
+
+
 ## Actualización v0.99.3 — HTTP OAuth Resource Boundary (2026-10-29)
 
 - **E06 — MCP Streamable HTTP (parcial)**: `server/discover` modern 2026-07-28 con resultado `supportedVersions`, `resultType`, metadatos de servidor; `tools/list`/`tools/call` modern JSON; `initialize` y llamadas 2025-11-25 **solo en subconjunto sin gestión integral de sesiones/SSE**. No conformidad universal.
