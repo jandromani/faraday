@@ -35,7 +35,7 @@ const ids=['E01','E05','E06','E07','E08','E10','E14','E17','E20','E21','E23','E2
 test('[E01] scoped threat model contains explicit threats, controls, negative test references and residual risks',()=>{
  assert.equal(manifest.version,1);assert.deepEqual(manifest.candidates.map(e=>e.id).sort(),ids.slice().sort());
  assert.ok(manifest.threats.length>=12);
- for(const row of manifest.threats){assert.ok(row.id&&row.risk&&row.control&&row.test&&row.residualRisk);assert.ok(existsSync(resolve(row.test)));}
+ for(const row of manifest.threats){assert.ok(row.id&&row.risk&&row.control&&row.test&&row.residualRisk);assert.ok((Array.isArray(row.test)?row.test:[row.test]).some(p=>existsSync(resolve(p))));}
  assert.ok(manifest.candidates.every(e=>e.scope&&e.exclusions?.length&&e.acceptance?.length));
 });
 
@@ -73,20 +73,20 @@ test('[E07] opt-in Python wrappers and API-level tests are present; no implicit 
 
 test('[E08] Graph stores bounded metadata and sanitized structural contracts without secret-bearing descriptions',t=>{
  const root=workspace(t),db=join(root,'graph.sqlite');
- const g=new GraphStore(db);t.after(()=>g.close());
+ const g=new GraphStore(db);
  g.inventory([{client:'test-client',server:'sandbox',transport:'stdio'}]);
  g.contract('sandbox','read_document',{type:'object',description:'SECRET_E08_LEAK',properties:{id:{type:'string',default:'SECRET_E08_LEAK'}}});
  const snap=g.snapshot();assert.ok(snap.nodes.some(n=>n.type==='client'));assert.ok(snap.edges.some(e=>e.relation==='configured'));
- assert.equal(snap.stats.contracts,1);assert.ok(!readFileSync(db).includes(Buffer.from('SECRET_E08_LEAK')));
+ assert.equal(snap.stats.contracts,1);assert.ok(!readFileSync(db).includes(Buffer.from('SECRET_E08_LEAK')));g.close();
 });
 
 test('[E10] exact scope policy and signed agent proof deny a substituted resource and a forged identity',t=>{
- const root=workspace(t),f=fixture(root);t.after(()=>f.close());
+ const root=workspace(t),f=fixture(root);
  assert.equal(evaluatePolicy(POLICY,{agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS}).allowed,true);
  assert.equal(evaluatePolicy(POLICY,{agent:AGENT,tool:TOOL,resource:'invoice:other',action:ACTION,args:ARGS}).allowed,false);
  assert.equal(evaluatePolicy(POLICY,{agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:{...ARGS,recipient:'attacker'}}).allowed,false);
  const rogue=createExecution({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS,capability:f.capability,agentPrivatePem:newIdentity().privatePem});
- assert.throws(()=>f.gate.authorize({capability:f.capability,proof:rogue}));
+ assert.throws(()=>f.gate.authorize({capability:f.capability,proof:rogue}));f.close();
 });
 
 test('[E14] an executed synthetic MCP operation carries independently verifiable gateway and backend evidence',async()=>{
@@ -101,9 +101,9 @@ test('[E17] SQLite quota fails closed, survives reopen and prevents duplicate co
  const b=new LocalBudget(db,{limits,now:()=>60010});
  for(let i=0;i<3;i++)assert.equal(b.consume('demo').allowed,true);
  assert.throws(()=>b.consume('demo'),/budget-exhausted/);b.close();
- const again=new LocalBudget(db,{limits,now:()=>60010});t.after(()=>again.close());
+ const again=new LocalBudget(db,{limits,now:()=>60010});
  assert.throws(()=>again.consume('demo'),/budget-exhausted/);
- assert.throws(()=>again.consume('unknown'),/no-budget-policy/);
+ assert.throws(()=>again.consume('unknown'),/no-budget-policy/);again.close();
 });
 
 test('[E20] Preflight TrustDiff and schema diff classify expansions conservatively',()=>{

@@ -4,7 +4,7 @@
  */
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {readFileSync,writeFileSync,lstatSync} from 'node:fs';
+import {readFileSync,statSync,writeFileSync,lstatSync} from 'node:fs';
 import {resolve,dirname,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
@@ -13,7 +13,9 @@ const bannedName=/(^|\/)(\.env(?:\..+)?|\.npmrc|id_(?:rsa|ed25519)|.*\.(?:pem|ke
 const suspicious=[/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/, /\bsk-(?:proj-|or-v1-|live-)[A-Za-z0-9_-]{18,}/, /\bghp_[A-Za-z0-9]{30,}/];
 export function audit({project=root,packFn}={}){
  const pkg=JSON.parse(readFileSync(join(project,'package.json'),'utf8'));
- const run=packFn??(()=>JSON.parse(execFileSync('npm',['pack','--json','--dry-run','--ignore-scripts'],{cwd:project,encoding:'utf8'})));
+ const run=packFn??(()=>JSON.parse(process.platform==='win32'
+   ?execFileSync('cmd.exe',['/d','/s','/c','npm pack --json --dry-run --ignore-scripts'],{cwd:project,encoding:'utf8'})
+   :execFileSync('npm',['pack','--json','--dry-run','--ignore-scripts'],{cwd:project,encoding:'utf8'})));
  const result=run();if(!Array.isArray(result)||result.length!==1||!Array.isArray(result[0].files))throw Error('unrecognized-pack-manifest');
  const failures=[],files=[];
  for(const entry of result[0].files){

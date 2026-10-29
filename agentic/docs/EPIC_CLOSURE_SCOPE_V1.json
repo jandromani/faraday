@@ -237,14 +237,20 @@
       "id": "T03",
       "risk": "Argumentos cambiados después de aprobación",
       "control": "Ámbito exacto firmado",
-      "test": "tests/approvals.test.js",
+      "test": [
+        "tests/operator-controls.test.js",
+        "tests/approvals.test.js"
+      ],
       "residualRisk": "No evaluación semántica"
     },
     {
       "id": "T04",
       "risk": "Suplantación de aprobador",
       "control": "Dos firmas de operadores sintéticos",
-      "test": "tests/approvals.test.js",
+      "test": [
+        "tests/operator-controls.test.js",
+        "tests/approvals.test.js"
+      ],
       "residualRisk": "Operadores no humanos verificados"
     },
     {
@@ -258,7 +264,10 @@
       "id": "T06",
       "risk": "SSRF y DNS rebinding",
       "control": "Guard DNS y validación egress",
-      "test": "tests/egress-guard.test.js",
+      "test": [
+        "tests/shield.test.js",
+        "tests/egress-guard.test.js"
+      ],
       "residualRisk": "Loopback explícito sigue siendo sensible"
     },
     {
@@ -279,21 +288,30 @@
       "id": "T09",
       "risk": "Herramienta no allowlisted",
       "control": "ToolPolicy default deny opt-in",
-      "test": "tests/security-policy.test.js",
+      "test": [
+        "tests/shield.test.js",
+        "tests/security-policy.test.js"
+      ],
       "residualRisk": "Rutas directas no interceptadas"
     },
     {
       "id": "T10",
       "risk": "Consumo excesivo",
       "control": "LocalBudget fail-closed",
-      "test": "tests/budget.test.js",
+      "test": [
+        "tests/operator-controls.test.js",
+        "tests/budget.test.js"
+      ],
       "residualRisk": "No cuota distribuida"
     },
     {
       "id": "T11",
       "risk": "Eventos de incidentes manipulados",
       "control": "Hash chain Sentinel",
-      "test": "tests/sentinel.test.js",
+      "test": [
+        "tests/operator-controls.test.js",
+        "tests/sentinel.test.js"
+      ],
       "residualRisk": "SQLite editable por usuario privilegiado"
     },
     {
