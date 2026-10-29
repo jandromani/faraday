@@ -6,8 +6,8 @@ export class DeploymentBoundaryError extends Error{
 }
 function endpoints(service){return (service?.networks && (Array.isArray(service.networks)?service.networks:Object.keys(service.networks)))||[];}
 function mounts(service){return (service?.volumes||[]).map(v=>typeof v==='string'?{source:v.split(':')[0],target:v.split(':')[1]}:{source:v.source,target:v.target});}
-const unsafeDev = s => Boolean(s.devices?.length||s.volumes_from?.length||s.links?.length||s.extra_hosts?.length||s.secrets?.length||s.configs?.length||s.cap_add?.length||s.privileged||s.ipc==='host'||s.uts==='host');
-const hasNoNewPrivileges=s=>(s.security_opt||[]).some(v=>String(v).includes('no-new-privileges:true'));
+const unsafeDev = s => Boolean(s.devices?.length||s.volumes_from?.length||s.links?.length||s.extra_hosts?.length||s.secrets?.length||s.configs?.length||s.cap_add?.length||s.userns_mode==='host'||s.cgroupns_mode==='host'||s.privileged||s.ipc==='host'||s.uts==='host');
+const hasNoNewPrivileges=s=>Array.isArray(s.security_opt)&&s.security_opt.length===1&&s.security_opt[0]==='no-new-privileges:true';
 const isExplicitNonRoot=s=>typeof s.user==='string'&&/^[0-9]+:[0-9]+$/.test(s.user)&&
   s.user.split(':').every(x=>Number.isSafeInteger(Number(x))&&Number(x)>0);
 const mountTargets={
