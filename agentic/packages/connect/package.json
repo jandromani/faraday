@@ -1,0 +1,10 @@
+{
+  "name": "@faraday/connect",
+  "version": "0.99.4",
+  "type": "module",
+  "private": true,
+  "description": "FARADAY connect migration boundary (private internal package)",
+  "exports": {
+    ".": "./index.js"
+  }
+}

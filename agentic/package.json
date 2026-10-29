@@ -1,8 +1,8 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.99.3",
+  "version": "0.99.4",
   "private": true,
-  "description": "FARADAY MCP Streamable HTTP protected resource JWT OAuth boundary and dual-era pilot",
+  "description": "FARADAY modular architecture: Connect, Authority, Evidence, Lab, OpenTelemetry metadata and blocking assurance",
   "type": "module",
   "bin": {
     "faraday": "./bin/faraday.js",
@@ -36,7 +36,9 @@
     "closure:report": "node scripts/epic-closure-report.mjs",
     "closure:test": "node --test tests/closure-acceptance.test.js",
     "oauth:test": "node --test tests/mcp-oauth-resource.test.js",
-    "oauth:eval": "node scripts/oauth-attack-evals.mjs"
+    "oauth:eval": "node scripts/oauth-attack-evals.mjs",
+    "architecture:test": "node --test tests/architecture.test.js tests/assurance-gates.test.js tests/otel-mcp.test.js tests/gateway-policy-port.test.js",
+    "assurance:ci": "node scripts/assurance-ci.mjs"
   },
   "license": "Apache-2.0",
   "exports": {
@@ -67,7 +69,14 @@
     "./workflow": "./lib/workflow-e2e.js",
     "./workflow-trace": "./lib/workflow-trace.js",
     "./workflow-free-planner": "./lib/workflow-free-planner.js",
-    "./mcp-oauth-resource": "./lib/mcp-oauth-resource.js"
+    "./mcp-oauth-resource": "./lib/mcp-oauth-resource.js",
+    "./connect": "./packages/connect/index.js",
+    "./authority-suite": "./packages/authority/index.js",
+    "./evidence": "./packages/evidence/index.js",
+    "./lab-suite": "./packages/lab/index.js",
+    "./otel-mcp": "./lib/otel-mcp.js",
+    "./assurance-gates": "./lib/assurance-gates.js",
+    "./gateway-policy-port": "./lib/gateway-policy-port.js"
   },
   "files": [
     "bin",
@@ -78,6 +87,7 @@
     "docs",
     "scripts",
     "deploy",
-    "python"
+    "python",
+    "packages"
   ]
 }

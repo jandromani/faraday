@@ -1,0 +1,10 @@
+{
+  "name": "@faraday/lab",
+  "version": "0.99.4",
+  "type": "module",
+  "private": true,
+  "description": "FARADAY lab migration boundary (private internal package)",
+  "exports": {
+    ".": "./index.js"
+  }
+}
