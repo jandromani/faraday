@@ -1,71 +1,96 @@
-/** MCP OAuth resource boundary. Pinned public JWKS, no authorization server or network fetch. */
+/** MCP OAuth 2.x Resource Server boundary, pinned JWKS (no dynamic network fetch).
+ * Verifies bearer access tokens; it DOES NOT act as an OAuth Authorization Server.
+ * HTTPS / public validation and TLS termination are deployment responsibilities.
+ */
 import {createPublicKey,verify} from 'node:crypto';
-export class OAuthBoundaryError extends Error{
+
+export class OAuthBoundaryError extends Error {
   constructor(code,status=401){super(code);this.code=code;this.status=status;}
 }
-const fail=(code,status=401)=>{throw new OAuthBoundaryError(code,status);};
-function b64(s,max=16384){
-  if(typeof s!=='string'||!s||s.length>max||!/^[A-Za-z0-9_-]+$/.test(s))fail('invalid_token');
-  const b=Buffer.from(s,'base64url');if(b.toString('base64url')!==s)fail('invalid_token');return b;
+function reject(code,status=401){throw new OAuthBoundaryError(code,status);}
+function strictB64(s,max=16384){
+  if(typeof s!=='string'||s.length<1||s.length>max||!/^[A-Za-z0-9_-]+$/.test(s))reject('invalid_token');
+  const decoded=Buffer.from(s,'base64url');if(decoded.toString('base64url')!==s)reject('invalid_token');return decoded;
 }
-function json(s){let obj;try{obj=JSON.parse(b64(s).toString('utf8'));}catch{fail('invalid_token');}
-  if(!obj||typeof obj!=='object'||Array.isArray(obj))fail('invalid_token');return obj;
+function jsonPart(part){let data;try{data=JSON.parse(strictB64(part).toString('utf8'));}catch{reject('invalid_token');}
+  if(!data||typeof data!=='object'||Array.isArray(data))reject('invalid_token');return data;
 }
-function url(v,label,allowLoopback){
-  let x;try{x=new URL(v);}catch{throw Error('Invalid '+label);}
-  if(x.username||x.password||x.search||x.hash||
-     !(x.protocol==='https:'||(allowLoopback&&x.protocol==='http:'&&['127.0.0.1','localhost','[::1]'].includes(x.hostname))))throw Error('Invalid '+label);
-  return x.href.replace(/\/$/,'');
+function validateHttps(url,name,{allowHttpLoopback=false}={}){
+  let u;try{u=new URL(url);}catch{throw Error(`Invalid ${name}`);}
+  if(u.hash||u.username||u.password||u.search||!u.hostname||
+    !(u.protocol==='https:'||(allowHttpLoopback&&u.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(u.hostname))))throw Error(`Invalid ${name}`);
+  return u.href.replace(/\/$/,'');
 }
-export class PinnedOAuthResource{
-  constructor({issuer,resource,authorizationServers=[issuer],publicJwks,readScope='mcp:tools:read',
-    executeScope='mcp:tools:execute',allowHttpLoopback=false,clock=()=>Math.floor(Date.now()/1000),maxTokenAge=3600}){
-    this.issuer=url(issuer,'issuer',allowHttpLoopback);
-    this.resource=url(resource,'resource',allowHttpLoopback);
-    if(!this.resource.endsWith('/mcp'))throw Error('Invalid MCP resource path');
-    if(!Array.isArray(authorizationServers)||!authorizationServers.length||authorizationServers.length>8)throw Error('Invalid authorization servers');
-    this.authorizationServers=authorizationServers.map(v=>url(v,'authorization server',allowHttpLoopback));
-    if(!this.authorizationServers.includes(this.issuer))throw Error('Untrusted issuer');
+const scopes=(value)=>typeof value==='string'?value.split(' ').filter(Boolean):[];
+/** Config: {issuer,resource,authorizationServers,publicJwks:[{kid,kty,crv,x,...}],requiredScopes,allowHttpLoopback:false}.
+ * Private keys are rejected, so no long-lived signing secret is introduced into the gateway.
+ */
+export class PinnedOAuthResource {
+  constructor({issuer,resource,authorizationServers=[issuer],publicJwks,readScope='mcp:tools:read',executeScope='mcp:tools:execute',allowHttpLoopback=false,clock=()=>Math.floor(Date.now()/1000),maxTokenAge=3600,revocations=null}){
+    this.issuer=validateHttps(issuer,'issuer',{allowHttpLoopback});
+    this.resource=validateHttps(resource,'resource',{allowHttpLoopback});
+    if(!this.resource.endsWith('/mcp'))throw Error('OAuth resource URL must end in /mcp');
+    if(!Array.isArray(authorizationServers)||authorizationServers.length<1||authorizationServers.length>8)throw Error('Invalid authorization server set');
+    this.authorizationServers=authorizationServers.map(u=>validateHttps(u,'authorization server',{allowHttpLoopback}));
+    if(!this.authorizationServers.includes(this.issuer))throw Error('Issuer not authorized for resource');
     if(!/^[\w:-]{3,100}$/.test(readScope)||!/^[\w:-]{3,100}$/.test(executeScope))throw Error('Invalid scopes');
     this.readScope=readScope;this.executeScope=executeScope;this.clock=clock;this.maxTokenAge=maxTokenAge;
-    if(!Array.isArray(publicJwks)||!publicJwks.length||publicJwks.length>20)throw Error('Pinned public JWKS required');
-    this.keys=new Map();
+    if(revocations!==null && typeof revocations.isRevoked!=='function')throw Error('invalid-revocation-backend');
+    this.revocations=revocations;
+    if(!Array.isArray(publicJwks)||publicJwks.length<1||publicJwks.length>20)throw Error('Pinned public JWKS required');
+    this.replacePublicJwks(publicJwks);
+    this.metadata=Object.freeze({resource:this.resource,authorization_servers:this.authorizationServers,scopes_supported:[readScope,executeScope],bearer_methods_supported:['header']});
+  }
+  /** Operator initiated atomic replacement: no JWKS fetching or untrusted automatic updates. */
+  replacePublicJwks(publicJwks){
+    if(!Array.isArray(publicJwks)||publicJwks.length<1||publicJwks.length>20)throw Error('Pinned public JWKS required');
+    const newKeys=new Map();
     for(const jwk of publicJwks){
-      if(!jwk||typeof jwk.kid!=='string'||!/^[A-Za-z0-9._-]{1,120}$/.test(jwk.kid)||
-         this.keys.has(jwk.kid)||jwk.d||jwk.p||jwk.q||jwk.kty!=='RSA'&&!(jwk.kty==='OKP'&&jwk.crv==='Ed25519'))throw Error('Invalid or private JWK');
+      if(!jwk||typeof jwk.kid!=='string'||!/^[A-Za-z0-9._-]{1,120}$/.test(jwk.kid)||newKeys.has(jwk.kid)||('d' in jwk)||('p' in jwk)||('q' in jwk))throw Error('Invalid or duplicate public JWK');
+      if(jwk.kty!=='RSA'&&!(jwk.kty==='OKP'&&jwk.crv==='Ed25519'))throw Error('Unsupported JWK key type');
       const alg=jwk.kty==='RSA'?'RS256':'EdDSA';
-      if(jwk.alg&&jwk.alg!==alg||jwk.use&&jwk.use!=='sig')throw Error('Invalid JWK algorithm');
-      let key;try{key=createPublicKey({format:'jwk',key:jwk});}catch{throw Error('Unusable public JWK');}
-      if(jwk.kty==='RSA'&&(key.asymmetricKeyDetails?.modulusLength??0)<2048)throw Error('Weak RSA key');
-      this.keys.set(jwk.kid,{key,alg});
+      if(jwk.alg&&jwk.alg!==alg)throw Error('JWK algorithm mismatch');
+      if(jwk.use&&jwk.use!=='sig')throw Error('JWK not for signature');
+      try{
+        const publicKey=createPublicKey({format:'jwk',key:jwk});
+        if(jwk.kty==='RSA' && (publicKey.asymmetricKeyDetails?.modulusLength??0)<2048)throw Error('RSA key too short');
+        newKeys.set(jwk.kid,{key:publicKey,alg});
+      }catch{throw Error('Unusable or weak public JWK');}
     }
-    this.metadata=Object.freeze({resource:this.resource,authorization_servers:this.authorizationServers,
-      scopes_supported:[readScope,executeScope],bearer_methods_supported:['header']});
+    this.keys=newKeys;
+    return Object.freeze({kids:[...newKeys.keys()]});
   }
   challenge(scope=this.readScope,error=null){
+    // Metadata URL is explicitly provisioned, not constructed from request Host.
     const u=new URL(this.resource);
-    const endpoint=u.origin+'/.well-known/oauth-protected-resource'+u.pathname;
-    return 'Bearer resource_metadata="'+endpoint+'", scope="'+scope+'"'+(error?', error="'+error+'"':'');
+    const metadata=`${u.origin}/.well-known/oauth-protected-resource${u.pathname}`;
+    return `Bearer resource_metadata="${metadata}", scope="${scope}"${error?`, error="${error}"`:''}`;
   }
   verifyAuthorization(header,scope){
-    if(typeof header!=='string'||!/^Bearer [A-Za-z0-9_.-]{1,24576}$/.test(header))fail('invalid_token');
-    const parts=header.slice(7).split('.');if(parts.length!==3)fail('invalid_token');
-    const [h,p,s]=parts,hd=json(h),claims=json(p);
-    if(hd.typ!=='at+jwt'||!this.keys.has(hd.kid)||hd.crit||hd.jwk||hd.jku||hd.x5u)fail('invalid_token');
-    const key=this.keys.get(hd.kid);
-    if(hd.alg!==key.alg)fail('invalid_token');
-    let ok=false;try{ok=verify(key.alg==='RS256'?'RSA-SHA256':null,Buffer.from(h+'.'+p),key.key,b64(s,2048));}
-    catch{fail('invalid_token');}
-    if(!ok)fail('invalid_token');
+    if(typeof header!=='string'||!/^Bearer [A-Za-z0-9_.-]{1,24576}$/.test(header))reject('invalid_token');
+    const raw=header.slice(7);if(raw.length>24576)reject('invalid_token');
+    const parts=raw.split('.');if(parts.length!==3)reject('invalid_token');
+    const [headPart,payloadPart,signaturePart]=parts;
+    const head=jsonPart(headPart),payload=jsonPart(payloadPart);
+    if(typeof head.kid!=='string'||!this.keys.has(head.kid)||head.typ!=='at+jwt'||!['RS256','EdDSA'].includes(head.alg)||head.crit||head.jwk||head.jku||head.x5u)reject('invalid_token');
+    const candidate=this.keys.get(head.kid);if(candidate.alg!==head.alg)reject('invalid_token');
+    const signature=strictB64(signaturePart,2048);
+    const signingInput=Buffer.from(`${headPart}.${payloadPart}`);
+    const ok=verify(head.alg==='RS256'?'RSA-SHA256':null,signingInput,candidate.key,signature);
+    if(!ok)reject('invalid_token');
     const now=this.clock();
-    if(!Number.isSafeInteger(claims.iat)||!Number.isSafeInteger(claims.exp)||
-       claims.exp<=now||claims.iat>now+30||claims.iat>claims.exp||now-claims.iat>this.maxTokenAge||
-       claims.nbf!==undefined&&(!Number.isSafeInteger(claims.nbf)||claims.nbf>now+30))fail('invalid_token');
-    if(claims.iss!==this.issuer||!(claims.aud===this.resource||
-       Array.isArray(claims.aud)&&claims.aud.length===1&&claims.aud[0]===this.resource))fail('invalid_token');
-    if(typeof claims.sub!=='string'||!claims.sub||claims.sub.length>256||
-       typeof claims.client_id!=='string'||!claims.client_id||claims.client_id.length>512)fail('invalid_token');
-    if(typeof claims.scope!=='string'||claims.scope.length>2048||!claims.scope.split(' ').includes(scope))fail('insufficient_scope',403);
-    return {subject:claims.sub,clientId:claims.client_id,scope};
+    if(!Number.isSafeInteger(now)||!Number.isSafeInteger(payload.exp)||!Number.isSafeInteger(payload.iat)||
+       payload.exp<=now||payload.iat>now+30||payload.iat>payload.exp||now-payload.iat>this.maxTokenAge||
+       (payload.nbf!==undefined&&(!Number.isSafeInteger(payload.nbf)||payload.nbf>now+30)))reject('invalid_token');
+    if(payload.iss!==this.issuer||!(payload.aud===this.resource||(Array.isArray(payload.aud)&&payload.aud.length===1&&payload.aud[0]===this.resource)))reject('invalid_token');
+    if(typeof payload.sub!=='string'||!payload.sub||payload.sub.length>256||typeof payload.client_id!=='string'||!payload.client_id||payload.client_id.length>512)reject('invalid_token');
+    if(typeof payload.scope!=='string'||payload.scope.length>2048||!scopes(payload.scope).includes(scope))reject('insufficient_scope',403);
+    if(this.revocations){
+      if(typeof payload.jti!=='string'||!/^[A-Za-z0-9._:-]{8,128}$/.test(payload.jti))reject('invalid_token');
+      // A missing/unreadable ledger is a denial, never an implicit allow.
+      try{if(this.revocations.isRevoked({jti:payload.jti,subject:payload.sub,clientId:payload.client_id}))reject('invalid_token');}
+      catch{reject('invalid_token');}
+    }
+    return {subject:payload.sub,clientId:payload.client_id,scope};
   }
 }
