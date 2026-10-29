@@ -81,6 +81,8 @@ for(const [what,mutate] of [
  ['writable gateway credential mount',x=>{x.services.gateway.volumes.find(v=>v.target==='/run/faraday').read_only=false;}],
  ['missing mandatory mount',x=>{x.services.backend.volumes.pop();}],
  ['duplicate app mount',x=>{x.services.backend.volumes[1].target='/app';}],
+ ['host user namespace',x=>{x.services.gateway.userns_mode='host';}],
+ ['unconfined seccomp',x=>{x.services['rogue-agent'].security_opt.push('seccomp:unconfined');}],
 ])test('R2 deployment hardening denies '+what,()=>{
  const x=fixture();mutate(x);
  assert.throws(()=>validateReferenceBoundary(x),DeploymentBoundaryError);
