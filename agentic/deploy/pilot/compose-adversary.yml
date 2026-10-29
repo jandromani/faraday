@@ -1,0 +1,37 @@
+services:
+  rogue-tool:
+    profiles: [adversary]
+    image: node:22.16-alpine
+    working_dir: /app
+    user: "${FARADAY_HOST_UID:?}:${FARADAY_HOST_GID:?}"
+    command: ["node", "scripts/enclave-rogue.mjs"]
+    volumes:
+      - ${FARADAY_APP_DIR:?}:/app:ro
+    networks: [agent_zone]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    read_only: true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+  outside:
+    profiles: [adversary]
+    image: node:22.16-alpine
+    command: ["node", "-e", "require('node:http').createServer((req,res)=>res.end('fixture')).listen(8097,'0.0.0.0')"]
+    networks: [outside_zone]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    read_only: true
+  egress-control:
+    profiles: [adversary]
+    image: node:22.16-alpine
+    command: ["node", "-e", "(async()=>{for(let n=0;n<40;n++){try{if((await fetch('http://outside:8097/',{signal:AbortSignal.timeout(300)})).ok)return}catch{}await new Promise(r=>setTimeout(r,150))}process.exitCode=1})()"]
+    networks: [outside_zone]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    read_only: true
+networks:
+  outside_zone:
+    driver: bridge

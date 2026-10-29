@@ -4,6 +4,22 @@
 
 - E01: modelo STRIDE interno para tres topologías, 13 riesgos priorizados y tres árboles de ataque, con controles existentes, responsables por función, pruebas y controles obligatorios pendientes. No hay personas asignadas ni revisión independiente; los tests no prueban cada despliegue. Ver [modelo de amenazas](../agentic/docs/THREAT_MODEL.md).
 - E02: [ADR-001](../agentic/docs/ADR-001-FOUR-COMPONENTS.md) documenta ownership propuesto, dependencias reales, versiones de formatos y gates para separar componentes. Las pruebas ejercitan las cuatro fachadas y la relación firmada Authority→Evidence; el verificador rechaza esquemas de recibo v1 incompatibles aunque tengan firma válida. Son pruebas locales de preview, no una matriz de versiones ni servicios aislados.
+## v0.99.7 — E16: signed single-node journal recovery (CI pending)
+
+- SQLite online snapshot, Ed25519 manifest, SHA-256, integrity verification and restore exclusively to a new location.
+- Local tampering, overwrite, symbolic link and CLI tests; never re-executes a tool.
+- External CI and DR remain pending: no HA, encryption, offsite backups, validated RPO/RTO or independent verification.
+- E14/E16/E28 are improved partially, enterprise epics remain open.
+
+
+## Actualización v0.99.5 — revocación, rotación y evidencias testificadas (2026-10-29)
+
+- **E09/E10:** `LocalOAuthRevocations` opt-in por `jti`, `sub` y `client_id`, SQLite persistente y comprobación efectiva por solicitud HTTP; ausencia de `jti` o fallo del registro deniega. `PinnedOAuthResource.replacePublicJwks` sustituye de forma atómica un conjunto validado de claves **cuando un operador invoca la API**. Sin IdP ni revocación distribuida.
+- **E12:** lectura estricta de secreto de backend mediante archivos 0600 re-leídos por gateway y backend. Test end-to-end demuestra discrepancia de credenciales → denegación y estado incierto, replay impedido, y una capacidad nueva funciona tras rotación sin reiniciar. **No hay Vault, KMS ni broker de credenciales efímeras.**
+- **E14:** nuevo checkpoint de recibos de gateway y atestaciones de backend sintéticas, cadena de digests y firma de testigo Ed25519 con raíz de confianza suministrada aparte. Comprueba adulteración/reordenación/truncado y opcionalmente raíz esperada para detectar replay de checkpoints antiguos. **No existe aún testigo independiente integrado ni custodia offsite real.**
+- **E15/E16:** prueba integrada de rotación equivocada y no-replay de capacidades; no es HA, failover, ni reconciliación distribuida.
+- **Calidad:** suite Node local original ampliada a 243 pruebas antes del último test E2E de recuperación; CI adicional `trust-controls.yml` en Linux Node 22/24, macOS 24 y Windows 24. Su aprobación se registra separadamente en Actions.
+- **Clasificación:** todos son **avances parciales de Developer Preview**. Ninguna de las 32 épicas originales se cierra con este cambio y no se alteran cifras VC sin evidencia externa. Documentación: `agentic/docs/V0995_TRUST_HARDENING.md`.
 
 ## Auditoría local posterior a v0.99.4 (2026-10-29)
 
@@ -163,10 +179,6 @@
 | E30 | Distribution / DX | Parcial | G: CLI, documentación y paquete privado; L: smoke Windows verifica rechazo seguro y dry-run | Instalación automática Windows con ACL verificadas, release firmada, npm público y quickstart externo |
 | E31 | Enterprise readiness | **Pendiente** | L: diseño de referencia, controles declarativos y prueba integrada sintética; no hay SSO o tenancy real | IdP y secretos reales, TLS, HA, SLA, aislamiento, recuperación y seguridad independiente |
 | E32 | Commercial validation / launch | **Pendiente** | L: protocolo de entrevistas y medición; no hay partners, pilotos ni ingresos acreditados | Tres design partners, un piloto con valor medido e intención de compra verificable |
-
-E21–E26, mejoras locales: TimeMachine rechaza políticas alternativas explícitas inválidas. El catálogo de IA gratuita rechaza precios malformados y valores positivos que se redondean a cero; esto no garantiza que el proveedor no cambie sus tarifas. El laboratorio distribuye sus elecciones con los bits altos del generador y su huella incluye los casos; la huella no es una firma. El inventario marca transportes explícitos desconocidos como no verificados; la elegibilidad restante solo describe el tipo de transporte, no valida la configuración ni la conectividad. El corpus de alcance ejecuta 120 mutaciones distintas con reloj controlado. Las brechas indicadas en la tabla permanecen abiertas.
-
-E26–E32, mejoras locales: las mutaciones usan reloj fijo; los microbenchmarks indican calentamiento y método de percentiles; la auditoría de paquete rechaza rutas duplicadas, no canónicas y padres simbólicos; el visor rechaza tokens Unicode inválidos sin excepciones; el comando de pruebas Python admite Windows. La firma de evidencia exige Ed25519 y una raíz propia, pero no demuestra independencia ni preparación empresarial. Para E32 siguen siendo necesarios pilotos consentidos, criterios de aceptación y resultados verificables; no se han acreditado clientes, ingresos ni despliegues comerciales. Estas comprobaciones locales no cierran las épicas.
 
 ## Bloqueantes y secuencia de trabajo
 

@@ -8,6 +8,8 @@ El diseño objetivo separa cliente y agente, gateway, proveedor de identidad, ge
 
 La referencia ejecutable actual es `npm run pilot:docker`, desde `agentic`, en un host POSIX no root con Docker Compose y daemon disponible. Solo crea un piloto sintético efímero. El Compose usa redes separadas para agente y backend, pero la configuración actual del piloto admite HTTP interno y archivos de secretos montados; no es un despliegue con TLS, Vault real o IdP. El perfil adversario prueba rutas seleccionadas, no todo el host o la red. En el entorno local actual el daemon Docker no estaba disponible y la configuración actual no se ha ejecutado. Ver [piloto y límites](V095_SECURE_PILOT.md).
 
+El validador estático comprueba el Compose base de cuatro servicios; el smoke añade después un overlay adversarial. La validación de la base no acredita por sí sola el aislamiento del overlay ni su ejecución efectiva.
+
 La prueba local `node --test --test-name-pattern="E31 synthetic" tests/mcp-oauth-resource.test.js` integra un token firmado de fixture y JWKS fijo, un servidor HTTP que simula Vault KV v2, gateway y backend en loopback, eventos y backup firmado. Comprueba audiencia incorrecta, fallo de secretos sin gasto de capacidad, ejecución sintética, replay denegado y restauración del journal a una ruta nueva sin reejecución. No despliega un IdP ni Vault, no verifica TLS, aislamiento de red, multitenancy ni operaciones reales. Los eventos son callbacks locales, no un sistema de observabilidad desplegado; el backup solo incluye el journal y no permite reanudar ejecución por sí solo.
 
 ## Criterios de aceptación pendientes

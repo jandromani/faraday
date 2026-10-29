@@ -1,13 +1,49 @@
-## FARADAY v0.99.4 — Architectural decisions A–D
+## FARADAY v0.99.7 — Signed journal recovery snapshots
 
-Four versioned internal API entrypoints (`./connect`, `./authority-suite`, `./evidence`, `./lab-suite`) preserve old imports. The migration is **phase 1, not four standalone services**. See [ADR-001](docs/ADR-001-FOUR-COMPONENTS.md).
+SQLite online backup, Ed25519 manifest, offline verification and restore to **a new** journal path, with no tool re-execution. Snapshot contents are **not encrypted** by FARADAY: use secure external storage and trusted signing keys. No HA/RPO/RTO guarantee.
 
-External gateway: [agentgateway/Envoy comparison and fail-closed integration port](docs/ADR-002-GATEWAY-MAKE-OR-BUY.md) — **not deployed into production**. Standards: [OWASP/ACS control crosswalk and safe OTel MCP projection](docs/ADR-003-STANDARDS-TELEMETRY.md). Assurance: [hard unit/integration/adversarial/independent evidence gates](docs/ADR-004-ASSURANCE-GATES.md); no claim of independent validation.
+```bash
+faraday recovery backup --db journal.sqlite --out snapshot.sqlite --private-key signer.pem
+faraday recovery verify --backup-file snapshot.sqlite --public-key signer.pub.pem
+faraday recovery restore --backup-file snapshot.sqlite --out restored.sqlite --public-key signer.pub.pem
+```
+
+## FARADAY v0.99.6 — Trust boundary / Vault adapter / rogue MCP server test
+
+The optional Vault KV v2 reader fetches a pinned secret from an explicitly configured Vault endpoint, using an operator-owned token **file** with strict permissions. Reads are fresh on each operation, fail closed and never log the token or credential. This is a **protocol adapter**, not complete Vault identity integration, lease renewal or a production secrets broker. HTTPS is required except for explicit loopback test fixtures. It is *not enabled* by default. See [pilot guide](docs/V0996_DEPLOYMENT_BOUNDARY.md).
+
+A Docker reference topology includes an **untrusted rogue-agent** without mounted credentials. Its live smoke tests attempt direct backend access and forged gateway tool execution. A deployment-contract check checks effective Docker Compose configuration for backend network isolation, denied secret mounts, dropped capabilities, read-only filesystems, resource limits and privilege restrictions. The proof is **only valid for that Docker topology**, not any arbitrary deployment or sandbox escape.
+
+```bash
+npm run boundary:test
+npm run pilot:docker  # requires Docker and Docker Compose
+npm run test:all
+```
+
+---
+
+## FARADAY v0.99.5 — Local trust hardening
+
+- Persistent **opt-in OAuth revocation** for tokens, agents and OAuth clients. Every token must carry `jti` when configured; revocation denies the tool call before it reaches the backend.
+- Atomic, operator-driven **public JWKS replacement** (not automatic remote discovery).
+- Strict file-backed **backend credential rotation** without restarting the synthetic gateway/backend; no Vault/KMS claim.
+- **Witness-signed evidence checkpoints** verified against a separately provisioned public trust root (no independent witness deployed by default).
+- Regression: `npm run trust:test`; scope and caveats: [v0.99.5 hardening](docs/V0995_TRUST_HARDENING.md).
+
+## FARADAY v0.99.4 — Architecture, Standards and Assurance (migration phase 1)
+
+**Four internal, versioned public module APIs:** `@faraday/agentic/connect`, `./authority-suite`, `./evidence`, `./lab-suite`. These facades currently delegate to existing `lib/*` code; they are **not four separately deployable services**. The CLI and historical exports are unchanged. See [ADR-001](docs/ADR-001-FOUR-COMPONENTS.md).
+
+**Gateway decision ADR:** evaluate agentgateway as the MCP-native candidate and Envoy ext_authz as reference/fallback. An isolated, fail-closed, metadata-only policy port is available for prototype integration, **not active enforcement**. [ADR-002](docs/ADR-002-GATEWAY-MAKE-OR-BUY.md).
+
+**Standards:** OWASP Agentic ASI01–ASI10 mapping, OWASP Agent Control Standard and a privacy-first OTel MCP metadata envelope. No claim of ACS/OTLP implementation or certification. [ADR-003](docs/ADR-003-STANDARDS-TELEMETRY.md).
+
+**Blocking evidence gates:** `unit`, `integration`, `adversarial_deployment`, `independent_validation`; failed bypass checks cannot be averaged away. Developer CI verifies the first three; enterprise gates **fail until** independent evidence is signed externally. See [ADR-004](docs/ADR-004-ASSURANCE-GATES.md).
 
 ```bash
 npm run architecture:test
 npm run test:all
-# With Docker and a real Git checkout:
+# In a Git checkout with Docker, run the trusted evidence runner:
 npm run assurance:ci
 ```
 
@@ -15,21 +51,21 @@ npm run assurance:ci
 
 ---
 
-## FARADAY v0.99.3 — MCP Streamable HTTP + OAuth Resource Boundary
+## FARADAY v0.99.3 — Protected MCP Streamable HTTP + OAuth resource validation
 
-**New opt-in security**: Pinned Ed25519/RS256 JWT access-token verification, RFC 9728 metadata, read/execute scopes, bearer challenges, exact issuer/audience and JWT-subject-to-agent binding. The existing FARADAY Ed25519 capability, policy, operator approvals, idempotency and signed receipts still apply to synthetic `tools/call`. MCP 2026 `server/discover` uses the spec-correct result envelope. This is an OAuth **resource-server verifier**, NOT an authorization server, user login or production deployment.
+The optional HTTP OAuth **resource server** validates externally-issued JWT access tokens (pinned Ed25519 or RSA public JWKS) before enforcing FARADAY's existing agent identity, capability, tool policy, operator approvals and replay protection. It publishes RFC 9728 metadata, challenges with RFC 6750, separates read/execute scopes and binds the JWT subject to the signed FARADAY agent. Corrected modern MCP `server/discover` and result envelopes are included. **No login, OAuth authorization server, untrusted remote tool sandbox or production deployment is supplied.**
 
 ```bash
-npm run oauth:test     # real loopback HTTP integration tests
-npm run oauth:eval     # 200 deterministic signed-token attack cases
-npm run test:all       # full Graph/Authority/MCP regression
+npm run oauth:test  # live loopback HTTP security tests + offline JWT unit tests
+npm run oauth:eval  # 200 deterministic signed-token adversarial cases
+npm run test:all    # existing Graph/Authority/MCP regression
 ```
 
-See [Security scope and pilot config](docs/V0993_HTTP_OAUTH.md). OAuth is an **opt-in** boundary on the existing offline pilot; default operation does not become secure for remote users automatically.
+See [v0.99.3 protocol/security documentation](docs/V0993_HTTP_OAUTH.md). To enable OAuth on a deployment fixture, add `oauthResource` to its trusted `FARADAY_PILOT_CONFIG`; by default the pre-existing offline pilot remains unchanged.
 
 ## v0.99.2 — Active MCP compatibility & cold onboarding
 
-The read-only by default live stdio probe supports modern `server/discover` (2026-07-28), legacy `initialize` (2025-11-25) and paginated `tools/list` on configured servers. Run `faraday compat probe --config .mcp.json --server NAME` to discover the real protocol era without executing tools. The CI tests pinned upstream official MCP filesystem/everything servers; another CI matrix validates offline install, rollback and diagnostics across operating systems. See [docs/V0992_LIVE_MCP_INTEROP.md](docs/V0992_LIVE_MCP_INTEROP.md) for limitations and opting in to a *named* safe tool call. **Not an MCP conformance certification.**
+The read-only by default live stdio probe supports modern `server/discover` (2026-07-28), legacy `initialize` (2025-11-25) and paginated `tools/list` on configured servers. Run `faraday compat probe --config .mcp.json --server NAME` to discover the real protocol era without executing tools. A new, not-yet-executed CI workflow will test pinned upstream MCP filesystem/everything servers and a Linux/macOS/Windows cold-install matrix. The local Linux cold install passes. See [docs/V0992_LIVE_MCP_INTEROP.md](docs/V0992_LIVE_MCP_INTEROP.md) for limitations and opting in to a *named* safe tool call. **Not an MCP conformance certification.**
 
 > **v0.99.1 acceptance audit:** 15 scoped Developer Preview gates; cross-OS CI; no enterprise epics certified. See [acceptance report](docs/EPIC_CLOSURE_V0991.md).
 

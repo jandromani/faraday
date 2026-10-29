@@ -1,6 +1,6 @@
 /** FARADAY Evidence public migration boundary v1. */
 export {signReceipt,verifyReceipt,ExecutionJournal} from '../../lib/pilot-receipts.js';
-export {witnessEvidenceCheckpoint,verifyEvidenceCheckpoint} from '../../lib/evidence-checkpoint.js';
+export {createEvidenceCheckpoint,witnessEvidenceCheckpoint,verifyEvidenceCheckpoint,verifyWitnessedEvidence} from '../../lib/evidence-checkpoint.js';
 export {createSignedJournalBackup,verifySignedJournalBackup,restoreVerifiedJournalBackup} from '../../lib/journal-backup.js';
 export {signReleaseEvidence,verifyReleaseEvidence} from '../../lib/release-evidence.js';
 export {verifyBackendAttestation,signBackendAttestation} from '../../lib/backend-attestation.js';

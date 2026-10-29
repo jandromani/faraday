@@ -86,8 +86,8 @@ Usage:
   faraday benchmark [--iterations 200] [--out FILE]
   faraday recovery inspect --db JOURNAL [--stale-ms 60000]
   faraday recovery backup --db JOURNAL --out BACKUP --private-key KEY
-  faraday recovery verify --backup-file BACKUP --public-key KEY [--expected-sha256 HASH] [--min-created-at MS]
-  faraday recovery restore --backup-file BACKUP --out NEW_JOURNAL --public-key KEY [--expected-sha256 HASH] [--min-created-at MS]
+  faraday recovery verify --backup-file BACKUP --public-key KEY [--receipt FILE] [--expected-sha256 HASH] [--min-created-at MS]
+  faraday recovery restore --backup-file BACKUP --out NEW_JOURNAL --public-key KEY [--receipt FILE] [--expected-sha256 HASH] [--min-created-at MS]
   faraday demo
   faraday security policy-template --server NAME [--json]
   faraday security audit [--root PATH] [--json]
@@ -170,7 +170,7 @@ async function main() {
     else if(action==='backup'&&flags.db&&flags.out&&flags['private-key'])result=await createSignedJournalBackup({journalPath:resolve(flags.db),backupPath:resolve(flags.out),privatePem:readKeyFile(resolve(flags['private-key']),{privateKey:true})});
     else if((action==='verify'||action==='restore')&&flags['backup-file']&&flags['public-key']&&(action!=='restore'||flags.out)){
       if(flags['min-created-at']!==undefined&&!/^\d+$/.test(flags['min-created-at']))throw Error('Invalid minimum backup time');
-      const options={backupPath:resolve(flags['backup-file']),publicPem:readKeyFile(resolve(flags['public-key'])),expectedSha256:flags['expected-sha256'],minCreatedAt:flags['min-created-at']===undefined?undefined:Number(flags['min-created-at'])};
+      const options={backupPath:resolve(flags['backup-file']),receiptPath:flags.receipt?resolve(flags.receipt):undefined,publicPem:readKeyFile(resolve(flags['public-key'])),expectedSha256:flags['expected-sha256'],minCreatedAt:flags['min-created-at']===undefined?undefined:Number(flags['min-created-at'])};
       result=action==='verify'?verifySignedJournalBackup(options):restoreVerifiedJournalBackup({...options,restorePath:resolve(flags.out)});
     }else throw Error('Invalid recovery command or missing options');
     process.stdout.write(JSON.stringify(result,null,2)+'\n');
