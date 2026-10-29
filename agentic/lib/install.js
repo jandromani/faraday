@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, chmodSync, statSync, lstatSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { configServers } from './discover.js';
 import { configuredHttpServer } from './http-bridge.js';
 import {loadToolPolicy} from './security-policy.js';
@@ -59,12 +60,12 @@ export function installProxy({configFile,server,db,binPath,nodePath,dryRun=false
   }
   mkdirSync(dir,{recursive:true,mode:0o700});
   chmodSync(dir,0o700);
-  const source={ [key]:{[server]:original} };
+  const proxy={command:nodePath,args:[binPath,command,'--config',file,'--server',server,'--db',resolve(db),...(policyFile?['--policy',resolve(policyFile)]:[])]};
+  const source={ [key]:{[server]:original},_faradayInstall:{version:1,wrapper:proxy} };
   // Backup contains original launch command, arguments and possibly credentials.
   // It is never committed or printed; owners should protect their local files.
   writeFileSync(file,JSON.stringify(source,null,2)+'\n',{encoding:'utf8',flag:'wx',mode:0o600});
   chmodSync(file,0o600);
-  const proxy={command:nodePath,args:[binPath,command,'--config',file,'--server',server,'--db',resolve(db),...(policyFile?['--policy',resolve(policyFile)]:[])]};
   try {
     json[key][server]=proxy;
     const mode=statSync(path).mode & 0o777;
@@ -85,7 +86,9 @@ export function uninstallProxy({configFile,server}) {
   const activeKey=locate(current,server);
   if(key!==activeKey||!Array.isArray(current[key][server]?.args)
       ||!['proxy','bridge'].includes(current[key][server].args[1])
-      ||current[key][server].args[3]!==file) {
+    ||current[key][server].args[3]!==file
+    ||(Object.hasOwn(previous,'_faradayInstall')&&
+      (previous._faradayInstall?.version!==1||!isDeepStrictEqual(previous._faradayInstall.wrapper,current[key][server])))) {
     throw Error('Config changed: refusing to overwrite; restore manually from private backup');
   }
   current[key][server]=previous[key][server];

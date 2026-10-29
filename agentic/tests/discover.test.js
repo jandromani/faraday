@@ -89,6 +89,29 @@ test('graph event retention previews and deletes only events before an explicit 
   assert.equal(store.snapshot().stats.events,1);
  }finally{store.close();}
 });
+test('graph deletion previews and atomically clears only known graph tables',t=>{
+ const root=fixture(t),db=join(root,'graph.sqlite'),store=new GraphStore(db);
+ try{
+  store.inventory([{client:'example',server:'demo',transport:'stdio'}]);
+  store.contract('demo','read',{type:'object'});
+  store.event({server:'demo',direction:'response',kind:'tool_call',operation:'tools/call'});
+  store.db.exec('CREATE TABLE other_data (value TEXT); INSERT INTO other_data VALUES (\'retained\')');
+  const preview=store.clearGraph();
+  assert.equal(preview.applied,false);assert.equal(preview.secureErasure,false);
+  for(const table of ['events','edges','contracts','nodes'])assert.ok(preview.counts[table]>0,table);
+  assert.equal(store.snapshot().stats.events,1);
+  assert.throws(()=>store.clearGraph({apply:'yes'}),/Invalid graph deletion/);
+  store.db.exec("CREATE TRIGGER reject_nodes BEFORE DELETE ON nodes BEGIN SELECT RAISE(ABORT,'blocked'); END");
+  assert.throws(()=>store.clearGraph({apply:true}),/blocked/);
+  assert.equal(store.snapshot().stats.events,1);assert.equal(store.snapshot().stats.contracts,1);
+  store.db.exec('DROP TRIGGER reject_nodes');
+  assert.deepEqual(store.clearGraph({apply:true}).counts,preview.counts);
+  assert.equal(store.db.prepare('SELECT value FROM other_data').get().value,'retained');
+ }finally{store.close();}
+ const reopened=new GraphStore(db);
+ try{for(const table of ['events','edges','contracts','nodes'])assert.equal(reopened.snapshot().stats[table],0,table);}
+ finally{reopened.close();}
+});
 test('graph prune CLI previews by default and requires an existing explicit database',t=>{
  const root=fixture(t),db=join(root,'graph.sqlite'),store=new GraphStore(db),cli=fileURLToPath(new URL('../bin/faraday.js',import.meta.url));
  store.event({server:'demo',direction:'response',kind:'tool_call',operation:'tools/call'});
@@ -100,6 +123,23 @@ test('graph prune CLI previews by default and requires an existing explicit data
  assert.notEqual(run(['--before',args[3],'--apply']).status,0);
  assert.notEqual(run(['--db',join(root,'missing.sqlite'),'--before',args[3]]).status,0);
  assert.equal(existsSync(join(root,'missing.sqlite')),false);
+});
+test('graph clear CLI requires explicit database and deletion confirmation',t=>{
+ const root=fixture(t),db=join(root,'graph.sqlite'),store=new GraphStore(db),cli=fileURLToPath(new URL('../bin/faraday.js',import.meta.url));
+ store.event({server:'demo',direction:'response',kind:'tool_call',operation:'tools/call'});store.close();
+ const run=args=>spawnSync(process.execPath,[cli,'graph','clear',...args],{encoding:'utf8'});
+ const args=['--db',db],preview=run(args);
+ assert.ifError(preview.error);assert.equal(preview.status,0,preview.stderr);
+ assert.equal(JSON.parse(preview.stdout).counts.events,1);assert.equal(JSON.parse(preview.stdout).applied,false);
+ assert.notEqual(run([...args,'--apply']).status,0);
+ assert.notEqual(run([...args,'--apply','--confirm','WRONG']).status,0);
+ assert.notEqual(run([...args,'--confirm','DELETE-ALL-GRAPH-DATA']).status,0);
+ assert.notEqual(run(['--apply','--confirm','DELETE-ALL-GRAPH-DATA']).status,0);
+ assert.notEqual(run(['--db',join(root,'missing.sqlite')]).status,0);
+ assert.equal(JSON.parse(run(args).stdout).counts.events,1);
+ const applied=run([...args,'--apply','--confirm','DELETE-ALL-GRAPH-DATA']);
+ assert.equal(applied.status,0,applied.stderr);assert.equal(JSON.parse(applied.stdout).applied,true);
+ assert.equal(JSON.parse(run(args).stdout).counts.events,0);
 });
 test('Windows auto-install refuses before creating a credential backup', {skip:process.platform!=='win32'},async t=>{
  const {installProxy}=await import('../lib/install.js');
@@ -137,4 +177,35 @@ test('uninstall refuses to overwrite a manually edited wrapper',async t=>{
  writeFileSync(backup,JSON.stringify({mcpServers:{sample:{command:'node',args:['example.js']}}}));
  writeFileSync(file,JSON.stringify({mcpServers:{sample:{command:process.execPath,args:['faraday.js','proxy','--config','changed']}}}));
  assert.throws(()=>uninstallProxy({configFile:file,server:'sample'}),/refusing/);
+});
+test('uninstall checks the complete recorded wrapper before rollback',async t=>{
+ const {uninstallProxy}=await import('../lib/install.js');
+ const root=fixture(t),file=join(root,'.mcp.json'),target=join(root,'.faraday','targets');mkdirSync(target,{recursive:true});
+ const id=createHash('sha256').update(file+'\0sample').digest('hex').slice(0,24),backup=join(target,id+'.json');
+ const original={command:'node',args:['example.js']};
+ const wrapper={command:process.execPath,args:['faraday.js','proxy','--config',backup,'--server','sample','--db',join(root,'graph.sqlite')]};
+ writeFileSync(backup,JSON.stringify({mcpServers:{sample:original},_faradayInstall:{version:1,wrapper}}));
+ for(const modified of [{...wrapper,command:'other'}, {...wrapper,args:[...wrapper.args.slice(0,7),'other.sqlite']}, {...wrapper,env:{EXTRA:'value'}}]){
+  const config={mcpServers:{sample:modified}};writeFileSync(file,JSON.stringify(config));
+  assert.throws(()=>uninstallProxy({configFile:file,server:'sample'}),/refusing/);
+  assert.deepEqual(JSON.parse(readFileSync(file,'utf8')),config);assert.equal(existsSync(backup),true);
+ }
+ writeFileSync(file,JSON.stringify({mcpServers:{sample:wrapper}}));
+ uninstallProxy({configFile:file,server:'sample'});
+ assert.deepEqual(JSON.parse(readFileSync(file,'utf8')).mcpServers.sample,original);
+ assert.equal(existsSync(backup),false);
+});
+test('uninstall preserves legacy backups but rejects invalid wrapper metadata',async t=>{
+ const {uninstallProxy}=await import('../lib/install.js');
+ const root=fixture(t),file=join(root,'.mcp.json'),target=join(root,'.faraday','targets');mkdirSync(target,{recursive:true});
+ const id=createHash('sha256').update(file+'\0sample').digest('hex').slice(0,24),backup=join(target,id+'.json');
+ const original={command:'node',args:['example.js']},wrapper={command:process.execPath,args:['faraday.js','proxy','--config',backup]};
+ const source={mcpServers:{sample:original}};
+ writeFileSync(file,JSON.stringify({mcpServers:{sample:wrapper}}));
+ writeFileSync(backup,JSON.stringify({...source,_faradayInstall:{version:2,wrapper}}));
+ assert.throws(()=>uninstallProxy({configFile:file,server:'sample'}),/refusing/);
+ assert.equal(existsSync(backup),true);
+ writeFileSync(backup,JSON.stringify(source));
+ uninstallProxy({configFile:file,server:'sample'});
+ assert.deepEqual(JSON.parse(readFileSync(file,'utf8')).mcpServers.sample,original);
 });

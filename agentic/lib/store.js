@@ -152,6 +152,19 @@ export class GraphStore {
     const deleted=this.db.prepare('DELETE FROM events WHERE ts < ?').run(before).changes;
     return {before,matched:deleted,deleted,applied:true};
   }
+  clearGraph({apply=false}={}) {
+    if(typeof apply!=='boolean')throw Error('Invalid graph deletion request');
+    const tables=['events','edges','contracts','nodes'];
+    this.db.exec(apply?'BEGIN IMMEDIATE':'BEGIN');
+    try {
+      if(this.db.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='adapter_imports'").get())tables.push('adapter_imports');
+      const counts=Object.fromEntries(tables.map(table=>[table,this.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n]));
+      if(apply)for(const table of tables)this.db.exec(`DELETE FROM ${table}`);
+      this.db.exec('COMMIT');
+      return {scope:'all-known-graph-rows',counts,applied:apply,secureErasure:false,
+        excluded:['other tables and databases','SQLite WAL and free pages','backups and exports']};
+    } catch(error) {this.db.exec('ROLLBACK');throw error;}
+  }
   close() { this.db.close(); }
 }
 

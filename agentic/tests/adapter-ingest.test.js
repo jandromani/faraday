@@ -19,9 +19,39 @@ test('metadata-only import is idempotent and creates graph',()=>{
   assert.ok(graph.edges.some(n=>n.relation==='calls_tool'));
   assert.equal(graph.stats.events,2);store.close();
 });
+test('denied or unverified adapter events do not assert execution',()=>{
+  const dir=make(),db=join(dir,'graph.sqlite'),file=join(dir,'trace.jsonl');
+  const events=[e({status:'denied'}),e({status:'unverified'}),e({status:'started'}),
+    e({kind:'node_call',status:'denied'}),e({kind:'node_call',status:'unverified'})];
+  writeFileSync(file,events.map(item=>JSON.stringify(item)).join('\n')+'\n');
+  assert.equal(ingestAdapterFile({file,db}).imported,events.length);
+  const store=new GraphStore(db);
+  try{
+    const relations=store.snapshot().edges.map(edge=>edge.relation);
+    for(const relation of ['denied_tool','observes_tool','denied_node','observes_node'])assert.ok(relations.includes(relation),relation);
+    assert.ok(!relations.includes('calls_tool'));assert.ok(!relations.includes('executes_node'));
+    assert.equal(store.snapshot().stats.toolCalls,0);
+    assert.deepEqual(new Set(store.events().map(event=>event.direction)),new Set(['denied','observed','request']));
+  }finally{store.close();}
+});
+test('clearing graph also clears import deduplication so a trace can be reimported',()=>{
+  const dir=make(),db=join(dir,'graph.sqlite'),file=join(dir,'trace.jsonl');
+  writeFileSync(file,JSON.stringify(e())+'\n');
+  assert.equal(ingestAdapterFile({file,db}).imported,1);
+  const store=new GraphStore(db);
+  try{
+    assert.equal(store.clearGraph().counts.adapter_imports,1);
+    assert.equal(store.clearGraph({apply:true}).counts.adapter_imports,1);
+  }finally{store.close();}
+  assert.equal(ingestAdapterFile({file,db}).imported,1);
+  const reopened=new GraphStore(db);
+  try{assert.equal(reopened.snapshot().stats.events,1);}finally{reopened.close();}
+});
 test('reject raw arguments, unknown keys, invalid digest and dangerous files',()=>{
   assert.throws(()=>validateAdapterRecord(e({arguments:{secret:'hi'}})),/metadata-only/);
   assert.throws(()=>validateAdapterRecord(e({agent:'raw_sensitive_name'})),/record value/);
+  assert.throws(()=>validateAdapterRecord(e({agent:['id-'+'a'.repeat(24)]})),/record value/);
+  assert.throws(()=>validateAdapterRecord(e({tool:['id-'+'b'.repeat(24)]})),/record value/);
   const dir=make(),file=join(dir,'events');
   writeFileSync(file,JSON.stringify(e({tool:'raw'}))+'\n');
   assert.throws(()=>ingestAdapterFile({file,db:join(dir,'graph.sqlite')}));

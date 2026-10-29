@@ -163,3 +163,20 @@ test('observer discards mismatched cursors and stale overlapping listings',async
   assert.deepEqual(store.contracts().map(x=>x.tool),['final','new']);
   }finally{store.close();}
 });
+test('observer discards repeated and cyclic pagination cursors',async t=>{
+  const dir=workspace(t),store=new GraphStore(join(dir,'graph.sqlite'));
+  try{
+    store.replaceContracts('test',[{name:'existing',inputSchema:{type:'object'}}]);
+    const {McpObserver}=await import('../lib/observe.js'),observer=new McpObserver(store,'test');
+    const request=(id,cursor)=>observer.consume(JSON.stringify({jsonrpc:'2.0',id,method:'tools/list',...(cursor===undefined?{}:{params:{cursor}})}),'client_to_server');
+    const response=(id,name,nextCursor)=>observer.consume(JSON.stringify({jsonrpc:'2.0',id,result:{tools:[{name,inputSchema:{type:'object'}}],...(nextCursor===undefined?{}:{nextCursor})}}),'server_to_client');
+    request(1);response(1,'first','cursor-a');request(2,'cursor-a');response(2,'repeat','cursor-a');
+    request(3,'cursor-a');response(3,'incomplete');
+    assert.deepEqual(store.contracts().map(row=>row.tool),['existing']);
+    request(4);response(4,'first','cursor-a');request(5,'cursor-a');response(5,'second','cursor-b');
+    request(6,'cursor-b');response(6,'cycle','cursor-a');request(7,'cursor-a');response(7,'incomplete');
+    assert.deepEqual(store.contracts().map(row=>row.tool),['existing']);
+    request(8);response(8,'first','cursor-a');request(9,'cursor-a');response(9,'last');
+    assert.deepEqual(store.contracts().map(row=>row.tool),['first','last']);
+  }finally{store.close();}
+});

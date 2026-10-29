@@ -69,11 +69,12 @@ export class McpObserver {
         if(state.listEpoch!==this.listEpoch)return;
         if (outcome!=='ok' || m.result.tools.length>1000 ||
           (m.result.nextCursor!==undefined && (typeof m.result.nextCursor!=='string'||!m.result.nextCursor||m.result.nextCursor.length>4096))) {this.partialTools=null;return;}
-        if(state.listCursor===undefined) this.partialTools={tools:[],nextCursor:null};
+        if(state.listCursor===undefined) this.partialTools={tools:[],nextCursor:null,seenCursors:new Set()};
         else if(typeof state.listCursor!=='string'||!this.partialTools||state.listCursor!==this.partialTools.nextCursor){this.partialTools=null;return;}
+        if(m.result.nextCursor!==undefined&&this.partialTools.seenCursors.has(m.result.nextCursor)){this.partialTools=null;return;}
         this.partialTools.tools.push(...page);
         if(this.partialTools.tools.length>2000){this.partialTools=null;return;}
-        if(m.result.nextCursor!==undefined){this.partialTools.nextCursor=m.result.nextCursor;return;}
+        if(m.result.nextCursor!==undefined){this.partialTools.seenCursors.add(m.result.nextCursor);this.partialTools.nextCursor=m.result.nextCursor;return;}
         const complete=this.partialTools.tools;this.partialTools=null;
       this.store.replaceContracts(this.server,complete);
     }

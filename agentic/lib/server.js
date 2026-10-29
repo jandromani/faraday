@@ -1,10 +1,11 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { GraphStore } from './store.js';
 import { snapshotFromStore } from './contracts.js';
+import {inspectRecovery} from './recovery-inspector.js';
 
 const STATIC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../web');
 const ASSETS = new Map([
@@ -20,7 +21,10 @@ function constantTimeEquals(a, b) {
 }
 
 /** Serve metadata-only read-only UI on loopback with an ephemeral access key. */
-export async function serveGraph({database, port = 0, onReady = () => {}}) {
+export async function serveGraph({database, port = 0, onReady = () => {}, journalPath = null}) {
+  if(journalPath!==null&&(typeof journalPath!=='string'||!journalPath))throw Error('Invalid recovery journal path');
+  const journal=journalPath===null?null:resolve(journalPath);
+  if(journal)inspectRecovery({path:journal});
   const store = new GraphStore(database);
   const token = randomBytes(24).toString('hex');
   const cookieName = 'faraday_session';
@@ -46,6 +50,13 @@ export async function serveGraph({database, port = 0, onReady = () => {}}) {
     }
     if (!validCookie) {
       res.writeHead(403, headers).end('Forbidden'); return;
+    }
+    if (u.pathname === '/api/recovery') {
+      try {
+        const data=journal?{configured:true,...inspectRecovery({path:journal})}:{configured:false};
+        res.writeHead(200,{...headers,'Content-Type':'application/json; charset=utf-8'}).end(JSON.stringify(data));
+      } catch {res.writeHead(503,headers).end('Recovery inspection unavailable');}
+      return;
     }
     if (u.pathname === '/api/graph' || u.pathname === '/api/events' || u.pathname === '/api/contracts') {
       try {

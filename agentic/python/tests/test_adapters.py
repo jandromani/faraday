@@ -83,9 +83,29 @@ class AdapterTests(unittest.TestCase):
             agent=types.SimpleNamespace(name='worker');t=types.SimpleNamespace(name='echo')
             asyncio.run(hooks.on_agent_start(None,agent))
             asyncio.run(hooks.on_tool_start(None,agent,t))
-            asyncio.run(hooks.on_tool_end(None,agent,t,'SECRET'))
+            asyncio.run(hooks.on_tool_end(None,agent,t,{'error':'SECRET'}))
+            self.assertEqual(recorder.events[-1]['status'],'unverified')
+            self.assertNotIn('SECRET',repr(recorder.events))
             asyncio.run(hooks.on_agent_end(None,agent,'SECRET'))
             self.assertEqual(recorder.events[-1]['kind'],'agent_end')
+
+    def test_direct_calls_bypass_all_opt_in_adapters(self):
+        recorder=Recorder();effects=[]
+        def perform():effects.append('synthetic');return 'done'
+        langgraph=wrap_tool(perform,name='write',recorder=recorder,allowed_tools=set())
+        with self.assertRaises(PermissionError):langgraph()
+        before,_=make_tool_hooks(recorder=recorder,allowed_tools=set())
+        self.assertIs(before(types.SimpleNamespace(tool_name='write',agent=types.SimpleNamespace(role='crew'))),False)
+        class MockFunctionTool:
+            def __init__(self,**kwargs):self.__dict__.update(kwargs)
+        with patch.dict(sys.modules,{'agents':types.SimpleNamespace(FunctionTool=MockFunctionTool)}):
+            openai=make_function_tool(perform,name='write',params_json_schema={'type':'object'},recorder=recorder,allowed_tools=set())
+            with self.assertRaises(PermissionError):asyncio.run(openai.on_invoke_tool(None,'{}'))
+        self.assertEqual(effects,[])
+        self.assertEqual([event['status'] for event in recorder.events],['denied','denied','denied'])
+        for _ in range(3):self.assertEqual(perform(),'done')
+        self.assertEqual(effects,['synthetic']*3)
+        self.assertEqual(len(recorder.events),3)
 
     def test_recorder_file_symlink_rejected(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -48,6 +48,17 @@ test('shield policy is explicit and defaults to denying unknown tools',()=>{
   assert.equal(policy.decision(rpc(2,'delete_all')).allowed,false);
   assert.throws(()=>new ToolPolicy({version:1,mode:'enforce',allowedTools:{}},'demo'),/allowlist/);
 });
+test('optional method allowlist blocks unlisted MCP methods and malformed frames',()=>{
+  const legacy=new ToolPolicy(policyData,'demo');
+  const strict=new ToolPolicy({...policyData,allowedMethods:['initialize','tools/list','tools/call']},'demo');
+  const resource={jsonrpc:'2.0',id:7,method:'resources/read',params:{uri:'file:///private'}};
+  assert.equal(legacy.decision(resource).allowed,true);
+  assert.equal(strict.decision(resource).allowed,false);
+  assert.equal(strict.decision(rpc(1,'safe_read')).allowed,true);
+  assert.equal(strict.decision(rpc(2,'delete_all')).allowed,false);
+  assert.equal(strict.decision({jsonrpc:'2.0',id:1,result:{}}).allowed,false);
+  for(const allowedMethods of [null,'tools/call',[null],['']])assert.throws(()=>new ToolPolicy({...policyData,allowedMethods},'demo'),/method allowlist/);
+});
 test('shield stdio guard blocks denied calls without forwarding them',async()=>{
   const source=new PassThrough(),destination=new PassThrough(),replies=new PassThrough();
   let received='',blocked='';destination.on('data',x=>received+=x);replies.on('data',x=>blocked+=x);
@@ -57,6 +68,19 @@ test('shield stdio guard blocks denied calls without forwarding them',async()=>{
   await new Promise(r=>destination.once('end',r));
   assert.equal(received,allowed);
   assert.equal(JSON.parse(blocked).error.code,-32003);
+});
+test('strict method policy blocks resource requests, notifications and responses in stdio',async()=>{
+  const source=new PassThrough(),destination=new PassThrough(),replies=new PassThrough();
+  let received='',blocked='';destination.on('data',x=>received+=x);replies.on('data',x=>blocked+=x);
+  const policy=new ToolPolicy({...policyData,allowedMethods:['tools/call']},'demo');
+  tapGuardedJsonLines(source,destination,{consume:()=>{}},policy,replies);
+  const allowed=JSON.stringify(rpc(1,'safe_read'))+'\n';
+  source.end(allowed+JSON.stringify({jsonrpc:'2.0',id:2,method:'resources/read'})+'\n'+
+    JSON.stringify({jsonrpc:'2.0',method:'notifications/secret'})+'\n'+JSON.stringify({jsonrpc:'2.0',id:3,result:{}})+'\n');
+  await new Promise(resolve=>destination.once('end',resolve));
+  assert.equal(received,allowed);
+  const errors=blocked.trim().split('\n').map(line=>JSON.parse(line));
+  assert.equal(errors.length,1);assert.equal(errors[0].id,2);assert.equal(errors[0].error.code,-32003);
 });
 test('shield HTTP bridge denies before contacting remote endpoint',async t=>{
   const dir=workspace(t),requests=[],emitted=[];
@@ -68,6 +92,40 @@ test('shield HTTP bridge denies before contacting remote endpoint',async t=>{
   assert.equal(requests.length,0);
   assert.equal(JSON.parse(emitted[0]).error.code,-32003);
   await bridge.close();
+});
+test('strict HTTP method policy denies resources before contacting backend',async t=>{
+  const dir=workspace(t),requests=[],emitted=[];
+  const bridge=new HttpBridge({server:{name:'demo',url:'https://example.com/mcp',headers:{}},
+    db:join(dir,'db.sqlite'),policy:new ToolPolicy({...policyData,allowedMethods:['tools/call']},'demo'),
+    fetcher:async request=>{requests.push(request);throw Error('must not fetch');},emit:message=>emitted.push(message)});
+  try{
+    await bridge.accept(JSON.stringify({jsonrpc:'2.0',id:4,method:'resources/read',params:{uri:'file:///private'}}));
+    await bridge.accept(JSON.stringify({jsonrpc:'2.0',method:'notifications/secret'}));
+    assert.equal(requests.length,0);assert.equal(emitted.length,1);assert.equal(JSON.parse(emitted[0]).error.code,-32003);
+  }finally{await bridge.close();}
+});
+test('real loopback backend is protected only when traffic traverses the strict bridge',async t=>{
+  const dir=workspace(t),requests=[],emitted=[];
+  const backend=createServer(async (request,response)=>{
+    let body='';for await(const chunk of request)body+=chunk;
+    const message=JSON.parse(body);requests.push(message);
+    response.writeHead(200,{'content-type':'application/json'});
+    response.end(JSON.stringify({jsonrpc:'2.0',id:message.id,result:{ok:true}}));
+  });
+  await new Promise(resolve=>backend.listen(0,'127.0.0.1',resolve));
+  t.after(()=>backend.close());
+  const url=`http://127.0.0.1:${backend.address().port}/mcp`;
+  const bridge=new HttpBridge({server:{name:'demo',url,headers:{}},db:join(dir,'db.sqlite'),
+    policy:new ToolPolicy({...policyData,allowedMethods:['tools/call']},'demo'),emit:message=>emitted.push(message)});
+  try{
+    const denied={jsonrpc:'2.0',id:7,method:'resources/read',params:{uri:'file:///private'}};
+    await bridge.accept(JSON.stringify(denied));
+    assert.equal(requests.length,0);assert.equal(JSON.parse(emitted[0]).error.code,-32003);
+    await bridge.accept(JSON.stringify(rpc(8,'safe_read')));
+    assert.equal(requests.length,1);assert.equal(requests[0].method,'tools/call');
+    const direct=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(denied)});
+    assert.equal(direct.status,200);assert.equal(requests.length,2);assert.equal(requests[1].method,'resources/read');
+  }finally{await bridge.close();}
 });
 test('shield local posture audit flags overpermissive private directory',{skip:process.platform==='win32'?'POSIX modes do not verify Windows ACLs':false},t=>{
   const dir=workspace(t);mkdirSync(join(dir,'.faraday'));chmodSync(join(dir,'.faraday'),0o755);

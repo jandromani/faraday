@@ -27,6 +27,7 @@ export class PinnedOAuthResource{
     this.authorizationServers=authorizationServers.map(v=>url(v,'authorization server',allowHttpLoopback));
     if(!this.authorizationServers.includes(this.issuer))throw Error('Untrusted issuer');
     if(!/^[\w:-]{3,100}$/.test(readScope)||!/^[\w:-]{3,100}$/.test(executeScope))throw Error('Invalid scopes');
+    if(typeof clock!=='function'||!Number.isSafeInteger(maxTokenAge)||maxTokenAge<1)throw Error('Invalid token clock or maximum age');
     this.readScope=readScope;this.executeScope=executeScope;this.clock=clock;this.maxTokenAge=maxTokenAge;
     if(!Array.isArray(publicJwks)||!publicJwks.length||publicJwks.length>20)throw Error('Pinned public JWKS required');
     this.keys=new Map();
@@ -58,7 +59,7 @@ export class PinnedOAuthResource{
     catch{fail('invalid_token');}
     if(!ok)fail('invalid_token');
     const now=this.clock();
-    if(!Number.isSafeInteger(claims.iat)||!Number.isSafeInteger(claims.exp)||
+    if(!Number.isSafeInteger(now)||!Number.isSafeInteger(claims.iat)||!Number.isSafeInteger(claims.exp)||
        claims.exp<=now||claims.iat>now+30||claims.iat>claims.exp||now-claims.iat>this.maxTokenAge||
        claims.nbf!==undefined&&(!Number.isSafeInteger(claims.nbf)||claims.nbf>now+30))fail('invalid_token');
     if(claims.iss!==this.issuer||!(claims.aud===this.resource||

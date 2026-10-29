@@ -1,14 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,rmSync} from 'node:fs';
+import http from 'node:http';
+import {createPrivateKey,sign} from 'node:crypto';
+import {spawn,spawnSync} from 'node:child_process';
+import {mkdtempSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {fixture,AGENT,ARGS,TOOL,RESOURCE,ACTION} from '../lib/authority-fixture.js';
-import {createExecution,newIdentity,AuthorityError,digest} from '../lib/authority.js';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import {createInterface} from 'node:readline';
+import {fixture,AGENT,ARGS,TOOL,RESOURCE,ACTION,POLICY} from '../lib/authority-fixture.js';
+import {createExecution,newIdentity,AuthorityError,NonceLedger,canonical,digest} from '../lib/authority.js';
 import {ExecutionJournal,signReceipt,verifyReceipt} from '../lib/pilot-receipts.js';
 import {DurableSyntheticStore,createDurableSyntheticBackend} from '../lib/pilot-backend.js';
 import {createSecurePilotGateway} from '../lib/pilot-mcp.js';
 import {signApproval,encodeApprovals} from '../lib/approvals.js';
+import {signBackendAttestation} from '../lib/backend-attestation.js';
+import {createVaultKv2SecretProvider} from '../lib/vault-kv2-secret-provider.js';
+import {reconcileSyntheticOperation} from '../lib/pilot-reconcile.js';
 
 const VERSION='2026-07-28';
 function setup(t){
@@ -53,6 +61,28 @@ test('signed MCP operation succeeds and receipt is independently verified',async
   assert.equal(x.store.count(),1);assert.equal(x.journal.get(receipt.claims.operationId).state,'simulated');
   assert.ok(!JSON.stringify(receipt).includes('supplier_demo'));
 });
+test('receipt verifier rejects signed incompatible claim schemas',async t=>{
+  const x=await system(t);const response=await post(x.url,call(),x.f);
+  const receipt=response.json.result.structuredContent.receipt;
+  const mergedFields=Object.fromEntries(Object.entries(receipt.claims).filter(([key])=>!['agent','argsHash'].includes(key)));
+  mergedFields['agent|argsHash']='synthetic';
+  for(const claims of [{...receipt.claims,unexpected:'value'},{...receipt.claims,version:2},Object.fromEntries(Object.entries(receipt.claims).filter(([key])=>key!=='agent')),mergedFields]){
+    const bytes=Buffer.concat([Buffer.from('FARADAY-RECEIPT-V095\0'),canonical(claims)]);
+    const incompatible={claims,signature:sign(null,bytes,createPrivateKey(x.receiptKey.privatePem)).toString('base64url')};
+    assert.throws(()=>verifyReceipt({publicPem:x.receiptKey.publicPem,receipt:incompatible,backendPublicPem:x.backendKey.publicPem}),/invalid-receipt/);
+  }
+});
+test('signed simulated receipts require independent backend evidence and key',async t=>{
+  const x=await system(t);const response=await post(x.url,call(),x.f),receipt=response.json.result.structuredContent.receipt;
+  const unsupported=signReceipt({privatePem:x.receiptKey.privatePem,claims:{...receipt.claims,backendAttestation:null,responseHash:null}});
+  assert.throws(()=>verifyReceipt({publicPem:x.receiptKey.publicPem,receipt:unsupported}),/backend-proof-not-verified/);
+  assert.throws(()=>verifyReceipt({publicPem:x.receiptKey.publicPem,backendPublicPem:x.backendKey.publicPem,receipt:unsupported}),/backend-proof-not-verified/);
+  assert.throws(()=>verifyReceipt({publicPem:x.receiptKey.publicPem,receipt}),/backend-key-required/);
+  assert.equal(verifyReceipt({publicPem:x.receiptKey.publicPem,backendPublicPem:x.backendKey.publicPem,receipt}).backendVerified,true);
+  const attestation=signBackendAttestation({privatePem:x.receiptKey.privatePem,claims:receipt.claims.backendAttestation.claims});
+  const sharedKey=signReceipt({privatePem:x.receiptKey.privatePem,claims:{...receipt.claims,backendAttestation:attestation,responseHash:digest(attestation)}});
+  assert.throws(()=>verifyReceipt({publicPem:x.receiptKey.publicPem,backendPublicPem:x.receiptKey.publicPem,receipt:sharedKey}),/backend-key-not-independent/);
+});
 test('stolen capability without agent signing key is denied',async t=>{
   const x=await system(t);const rogue=newIdentity();const fake=createExecution({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS,capability:x.f.capability,agentPrivatePem:rogue.privatePem});
   assert.equal((await post(x.url,call(),{capability:x.f.capability,proof:fake})).status,403);assert.equal(x.store.count(),0);
@@ -90,6 +120,17 @@ test('issuer key revocation during external policy wait prevents execution',asyn
   for(const key of Object.keys(x.f.gate.keys))delete x.f.gate.keys[key];
   release({decision:'allow'});
   assert.equal((await request).status,403);assert.equal(x.store.count(),0);
+});
+test('persistent agent revocation during external policy wait prevents execution',async t=>{
+  let release,started;
+  const pending=new Promise(resolve=>{started=resolve;});
+  const x=await system(t,{externalPolicy:{authorize:()=>{started();return new Promise(resolve=>{release=resolve;});}}});
+  const request=post(x.url,call(),x.f);await pending;
+  const writer=new NonceLedger(join(x.root,'gateway.sqlite'));x.additional.push(writer);
+  writer.revoke('agent',AGENT);
+  release({decision:'allow'});
+  assert.equal((await request).status,403);assert.equal(x.store.count(),0);
+  assert.equal(writer.db.prepare('SELECT COUNT(*) AS n FROM consumed').get().n,0);
 });
 test('policy revocation during external policy wait prevents execution without spending capability',async t=>{
   let release,started,first=true;
@@ -156,9 +197,132 @@ test('backend durable idempotency survives reopen',t=>{
   const b=new DurableSyntheticStore(db);t.after(()=>{b.close();rmSync(dir,{recursive:true,force:true});});assert.equal(b.apply(body).duplicate,true);assert.equal(b.count(),1);
   assert.equal(b.apply({...body,args:{...ARGS,amount_cents:9000}}).http,409);
 });
+test('backend deduplicates concurrent independent processes sharing one SQLite database',async t=>{
+  const x=setup(t),moduleUrl=pathToFileURL(join(process.cwd(),'lib','pilot-backend.js')).href;
+  const script=`import {DurableSyntheticStore} from ${JSON.stringify(moduleUrl)};
+let input='';for await(const chunk of process.stdin)input+=chunk;
+const config=JSON.parse(input),store=new DurableSyntheticStore(config.path);
+try{process.stdout.write(JSON.stringify(store.apply(config.body)));}finally{store.close();}`;
+  const config=JSON.stringify({path:join(x.root,'backend.sqlite'),body:{operationId:'concurrent-operation-123456789',tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS}});
+  const results=await Promise.all(Array.from({length:6},()=>new Promise((resolve,reject)=>{
+    const child=spawn(process.execPath,['--no-warnings','--input-type=module','-e',script],{stdio:['pipe','pipe','pipe']});
+    let output='',errors='';child.stdout.on('data',chunk=>output+=chunk);child.stderr.on('data',chunk=>errors+=chunk);
+    child.on('error',reject);child.on('close',code=>{if(code!==0)return reject(Error(errors||`exit ${code}`));try{resolve(JSON.parse(output));}catch(error){reject(error);}});
+    child.stdin.end(config);
+  })));
+  assert.equal(results.filter(result=>result.http===200&&!result.duplicate).length,1);
+  assert.equal(results.filter(result=>result.http===200&&result.duplicate).length,5);assert.equal(x.store.count(),1);
+  assert.equal(x.store.apply({operationId:'concurrent-operation-123456789',tool:TOOL,resource:RESOURCE,action:ACTION,args:{...ARGS,amount_cents:9000}}).http,409);
+});
+test('journal failure after backend execution leaves a reservation without replay',async t=>{
+  const x=await system(t);
+  x.journal.db.exec("CREATE TRIGGER reject_finish BEFORE UPDATE ON executions BEGIN SELECT RAISE(FAIL,'journal unavailable'); END");
+  assert.equal((await post(x.url,call(),x.f)).status,503);assert.equal(x.store.count(),1);
+  const operationId=x.f.gatewayLedger.db.prepare("SELECT key FROM consumed WHERE key LIKE 'cap:%'").get().key.slice(4);
+  const reopened=new ExecutionJournal(join(x.root,'journal.sqlite'));x.additional.push(reopened);
+  assert.equal(reopened.get(operationId).state,'reserved');assert.equal(reopened.get(operationId).receipt,null);
+  assert.equal((await post(x.url,call(),x.f)).status,403);assert.equal(x.store.count(),1);
+  let contacted=false;
+  await assert.rejects(reconcileSyntheticOperation({operationId,journal:reopened,backendUrl:x.backendUrl+'/internal/execute',backendSecret:x.f.backendSecret,backendPublicPem:x.backendKey.publicPem,receiptPrivatePem:x.receiptKey.privatePem,receiptPublicPem:x.receiptKey.publicPem,fetchFn:()=>{contacted=true;}}),/operation-not-reconcilable/);
+  assert.equal(contacted,false);
+});
+test('gateway process killed after backend execution leaves an unresolved reservation',async t=>{
+  const x=setup(t),backend=createDurableSyntheticBackend({secret:x.f.backendSecret,store:x.store,attestationPrivatePem:x.backendKey.privatePem});
+  const backendUrl=await listen(t,backend),authority=pathToFileURL(join(process.cwd(),'lib','authority.js')).href,
+    journalModule=pathToFileURL(join(process.cwd(),'lib','pilot-receipts.js')).href,pilot=pathToFileURL(join(process.cwd(),'lib','pilot-mcp.js')).href;
+  const script=`import {AuthorityGate,NonceLedger} from ${JSON.stringify(authority)};
+import {ExecutionJournal} from ${JSON.stringify(journalModule)};
+import {createSecurePilotGateway} from ${JSON.stringify(pilot)};
+let input='';for await(const chunk of process.stdin)input+=chunk;
+const config=JSON.parse(input),ledger=new NonceLedger(config.ledgerPath),journal=new ExecutionJournal(config.journalPath);
+const gate=new AuthorityGate({issuerKeys:config.issuerKeys,registry:config.registry,policy:config.policy,ledger});
+const server=createSecurePilotGateway({gate,journal,backendUrl:config.backendUrl,backendSecret:config.backendSecret,receiptPrivatePem:config.receiptPrivatePem,backendPublicPem:config.backendPublicPem,
+fetchFn:async(url,options)=>{const response=await fetch(url,options);await response.arrayBuffer();console.log('backend-applied');await new Promise(()=>{});}});
+server.listen(0,'127.0.0.1',()=>console.log('ready:'+server.address().port));`;
+  const child=spawn(process.execPath,['--no-warnings','--input-type=module','-e',script],{stdio:['pipe','pipe','pipe']});
+  t.after(()=>{if(child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');});
+  const lines=createInterface({input:child.stdout})[Symbol.asyncIterator]();
+  child.stdin.end(JSON.stringify({ledgerPath:join(x.root,'gateway.sqlite'),journalPath:join(x.root,'journal.sqlite'),issuerKeys:{'lab-issuer':x.f.issuer.publicPem},registry:x.f.registry,policy:POLICY,backendUrl:backendUrl+'/internal/execute',backendSecret:x.f.backendSecret,receiptPrivatePem:x.receiptKey.privatePem,backendPublicPem:x.backendKey.publicPem}));
+  const ready=(await lines.next()).value;assert.match(ready??'',/^ready:\d+$/);
+  const request=post('http://127.0.0.1:'+ready.slice(6),call(),x.f).catch(()=>null);
+  assert.equal((await lines.next()).value,'backend-applied');assert.equal(x.store.count(),1);
+  const exited=new Promise(resolve=>child.once('exit',resolve));child.kill('SIGKILL');await exited;await request;
+  const operationId=x.f.gatewayLedger.db.prepare("SELECT key FROM consumed WHERE key LIKE 'cap:%'").get().key.slice(4);
+  assert.equal(x.journal.get(operationId).state,'reserved');assert.equal(x.journal.get(operationId).receipt,null);
+  assert.throws(()=>x.f.gate.authorize({capability:x.f.capability,proof:x.f.proof}),/replayed/);
+  assert.equal(x.store.count(),1);
+});
 test('backend denies direct calls without service secret',async t=>{
   const x=await system(t);const r=await fetch(x.backendUrl+'/internal/execute',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});
   assert.equal(r.status,401);assert.equal(x.store.count(),0);
+});
+test('backend entrypoint rejects a non-file service credential',t=>{
+  const x=setup(t),script=fileURLToPath(new URL('../bin/faraday-pilot-backend.js',import.meta.url));
+  const result=spawnSync(process.execPath,[script],{encoding:'utf8',env:{...process.env,FARADAY_BACKEND_SECRET_FILE:x.root,FARADAY_BACKEND_DB:join(x.root,'unused.sqlite')}});
+  assert.notEqual(result.status,0);assert.match(result.stderr,/unsafe-key-file/);
+});
+test('pilot entrypoints reject unsafe secret and backend signing-key files',t=>{
+  const x=setup(t),secret=join(x.root,'secret'),policy=join(x.root,'policy.json'),config=join(x.root,'config.json');
+  writeFileSync(secret,x.f.backendSecret,{mode:0o600});writeFileSync(policy,JSON.stringify({version:1,mode:'enforce',rules:[]}));
+  writeFileSync(config,JSON.stringify({issuerKeys:{},agents:{},policy,nonceDb:join(x.root,'entry-nonce.sqlite'),journalDb:join(x.root,'entry-journal.sqlite'),backendUrl:'http://127.0.0.1/internal/execute',backendSecretFile:x.root}));
+  const backend=spawnSync(process.execPath,[fileURLToPath(new URL('../bin/faraday-pilot-backend.js',import.meta.url))],{encoding:'utf8',env:{...process.env,FARADAY_BACKEND_SECRET_FILE:secret,FARADAY_BACKEND_ATTESTATION_PRIVATE_FILE:x.root}});
+  const gateway=spawnSync(process.execPath,[fileURLToPath(new URL('../bin/faraday-pilot-gateway.js',import.meta.url))],{encoding:'utf8',env:{...process.env,FARADAY_PILOT_CONFIG:config}});
+  for(const result of [backend,gateway]){assert.notEqual(result.status,0);assert.match(result.stderr,/unsafe-key-file/);assert.ok(!result.stderr.includes(x.f.backendSecret));}
+});
+test('a direct caller with the service credential bypasses gateway authorization',async t=>{
+  const x=await system(t),body={operationId:'direct-operation-123456789',tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS};
+  const response=await fetch(x.backendUrl+'/internal/execute',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${x.f.backendSecret}`},body:JSON.stringify(body)});
+  assert.equal(response.status,200);assert.equal(x.store.count(),1);
+});
+test('backend redirect does not forward the service credential',async t=>{
+  let received=0;
+  const destination=await listen(t,http.createServer((req,res)=>{received++;res.end('unexpected');}));
+  const redirect=await listen(t,http.createServer((_req,res)=>{res.writeHead(307,{location:destination+'/internal/execute'});res.end();}));
+  const x=await system(t,{backendUrl:redirect+'/internal/execute'});
+  const response=await post(x.url,call(),x.f);
+  assert.equal(response.status,503);assert.equal(received,0);assert.equal(x.store.count(),0);
+  assert.ok(!JSON.stringify(response).includes(x.f.backendSecret));
+});
+test('upstream errors and responses do not reflect the service credential',async t=>{
+  let secret;const events=[];
+  const x=await system(t,{onEvent:event=>events.push(event),fetchFn:async(_url,options)=>{
+    secret=options.headers.authorization.slice('Bearer '.length);
+    return new Response(JSON.stringify({status:'error',message:secret}),{status:500});
+  }});
+  const response=await post(x.url,call(),x.f);
+  assert.equal(response.status,503);assert.equal(x.store.count(),0);
+  assert.equal(secret,x.f.backendSecret);
+  assert.ok(!JSON.stringify({response,events}).includes(secret));
+});
+test('credential provider failure does not spend authority and recovery succeeds',async t=>{
+  let unavailable=true,x;
+  x=await system(t,{backendSecret:undefined,backendSecretProvider:async()=>{if(unavailable)throw Error('sensitive token');return x.f.backendSecret;}});
+  const failed=await post(x.url,call(),x.f);assert.equal(failed.status,503);assert.ok(!JSON.stringify(failed).includes('sensitive token'));
+  assert.equal(x.store.count(),0);assert.equal(x.f.gatewayLedger.db.prepare('SELECT count(*) AS n FROM consumed').get().n,0);
+  unavailable=false;assert.equal((await post(x.url,call(),x.f)).status,200);assert.equal(x.store.count(),1);
+});
+test('gateway reads a KV v2 fixture and fails closed on revoked token',async t=>{
+  const root=mkdtempSync(join(tmpdir(),'faraday-vault-integration-')),tokenFile=join(root,'token');
+  writeFileSync(tokenFile,'hvs.TEST12345678901234567890',{mode:0o600});
+  t.after(()=>rmSync(root,{recursive:true,force:true}));
+  let secret,status=403,requests=0;
+  const vault=await listen(t,http.createServer((req,res)=>{
+    requests++;
+    if(req.url!=='/v1/secret/data/gateway/backend'||req.headers['x-vault-token']!=='hvs.TEST12345678901234567890'||status!==200){res.writeHead(403);return res.end();}
+    res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify({data:{data:{backend_credential:secret},metadata:{version:1}}}));
+  }));
+  const provider=createVaultKv2SecretProvider({baseUrl:vault,secretPath:'gateway/backend',tokenFile,allowLoopbackHttp:true});
+  const x=await system(t,{backendSecret:undefined,backendSecretProvider:provider});secret=x.f.backendSecret;
+  assert.equal((await post(x.url,call(),x.f)).status,503);assert.equal(x.store.count(),0);
+  status=200;const result=await post(x.url,call(),x.f);assert.equal(result.status,200);assert.equal(x.store.count(),1);
+  assert.equal(requests,2);assert.ok(!JSON.stringify(result).includes(secret));
+});
+test('revocation during credential lookup prevents authorization and backend calls',async t=>{
+  let release,started;const waiting=new Promise(resolve=>started=resolve);
+  let x;x=await system(t,{backendSecret:undefined,backendSecretProvider:()=>new Promise(resolve=>{release=()=>resolve(x.f.backendSecret);started();})});
+  const pending=post(x.url,call(),x.f);await waiting;x.f.gatewayLedger.revoke('agent',AGENT);release();
+  assert.equal((await pending).status,403);assert.equal(x.store.count(),0);
+  assert.equal(x.f.gatewayLedger.db.prepare('SELECT count(*) AS n FROM consumed').get().n,0);
 });
 test('receipt tampering and incorrect verification key are rejected',async t=>{
   const x=await system(t);const r=await post(x.url,call(),x.f);const receipt=r.json.result.structuredContent.receipt;
@@ -201,4 +365,19 @@ test('backend success response missing attestation is not accepted',async t=>{
     return new Response(JSON.stringify(result),{status:200,headers:{'content-type':'application/json'}});
   }});
   const r=await post(x.url,call(),x.f);assert.equal(r.status,503);assert.equal(x.store.count(),1);
+});
+test('E26 socket loss after committed backend effect stays uncertain and replay does not repeat it',async t=>{
+  let x;
+  const proxy=await listen(t,http.createServer((request,response)=>{
+    const upstream=http.request(x.backendUrl+'/internal/execute',{method:request.method,headers:request.headers},upstreamResponse=>{
+      upstreamResponse.resume();response.socket.destroy();
+    });
+    upstream.on('error',()=>response.destroy());request.pipe(upstream);
+  }));
+  x=await system(t,{backendUrl:proxy+'/internal/execute'});
+  assert.equal((await post(x.url,call(),x.f)).status,503);assert.equal(x.store.count(),1);
+  const key=x.f.gate.ledger.db.prepare("SELECT key FROM consumed WHERE key LIKE 'cap:%'").get().key.slice(4);
+  const record=x.journal.get(key);assert.equal(record.state,'upstream-uncertain');
+  assert.equal(verifyReceipt({publicPem:x.receiptKey.publicPem,receipt:record.receipt}).outcome,'upstream-uncertain');
+  assert.equal((await post(x.url,call(),x.f)).status,403);assert.equal(x.store.count(),1);
 });

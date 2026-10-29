@@ -8,6 +8,8 @@ import { join, resolve } from 'node:path';
 import { configuredHttpServer, HttpBridge } from '../lib/http-bridge.js';
 import { GraphStore } from '../lib/store.js';
 import { installProxy, uninstallProxy } from '../lib/install.js';
+import { ToolPolicy } from '../lib/security-policy.js';
+import { simulateObservedDecisions } from '../lib/trust-diff.js';
 
 const CLI=resolve('bin/faraday.js');
 const META={'io.modelcontextprotocol/protocolVersion':'2026-07-28',
@@ -95,6 +97,18 @@ test('HTTP bridge forwards JSON and SSE, persists contracts and redacts content'
   assert.ok(!serial.includes('DEV_SECRET_DO_NOT_PERSIST') && !serial.includes('SENSITIVE_ARG_DO_NOT_PERSIST'));
   store.close();
 });
+test('E20 preflight matches observed bridge decisions against a local synthetic backend',async t=>{
+  const {db,config:conf}=workspace(t),fx=await fixture(t);writeFileSync(conf,JSON.stringify(config(fx.url)));
+  const before={version:1,mode:'enforce',allowedTools:{remote:['echo']}},after={...before,allowedTools:{remote:['echo','blocked']}};
+  const lines=[],bridge=new HttpBridge({server:configuredHttpServer(conf,'remote'),db,policy:new ToolPolicy(before,'remote'),emit:raw=>lines.push(JSON.parse(raw))});
+  const requests=[rpc(2,'tools/call',{name:'echo',arguments:{value:'synthetic'}}),rpc(3,'tools/call',{name:'blocked',arguments:{value:'synthetic'}})];
+  try{await bridge.accept(JSON.stringify(init));for(const request of requests)await bridge.accept(JSON.stringify(request));}finally{await bridge.close();}
+  const observed=requests.map(message=>({server:'remote',message,observedAllowed:fx.seen.some(entry=>entry.m.id===message.id)}));
+  assert.deepEqual(observed.map(entry=>entry.observedAllowed),[true,false]);assert.equal(lines.find(line=>line.id===3).error.code,-32003);
+  const report=simulateObservedDecisions(before,after,observed);
+  assert.equal(report.summary.baselineMismatches,0);assert.equal(report.summary.changed,1);
+  assert.equal(report.results[1].proposed,'allow');
+});
 
 for(const initializeSse of [false,true]) test(`HTTP bridge uses server-negotiated version after ${initializeSse?'SSE':'JSON'} initialization`,async t=>{
   const {db,config:conf}=workspace(t),fx=await fixture(t,{protocolVersion:'2025-11-25',initializeSse});
@@ -106,6 +120,95 @@ for(const initializeSse of [false,true]) test(`HTTP bridge uses server-negotiate
   assert.equal(fx.seen[0].headers['mcp-protocol-version'],'2026-07-28');
   assert.equal(fx.seen[1].headers['mcp-protocol-version'],'2025-11-25');
   assert.equal(fx.seen[1].headers['mcp-session-id'],'DEMO-session-id');
+});
+
+test('SSE stream without the request response returns an upstream error',async t=>{
+  const {db}=workspace(t),lines=[];
+  const fetcher=async()=>new Response('data: '+JSON.stringify({jsonrpc:'2.0',method:'notifications/progress',params:{}})+'\n\n',
+    {headers:{'content-type':'text/event-stream'}});
+  const bridge=new HttpBridge({server:{name:'remote',url:'http://127.0.0.1/mcp',headers:{}},db,fetcher,emit:line=>lines.push(JSON.parse(line))});
+  try{await bridge.accept(JSON.stringify(rpc(2,'tools/list')));}finally{await bridge.close();}
+  assert.equal(lines.length,2);assert.equal(lines[0].method,'notifications/progress');
+  assert.equal(lines[1].id,2);assert.equal(lines[1].error.code,-32000);
+});
+test('SSE does not dispatch an event missing its terminating blank line',async t=>{
+  const {db}=workspace(t),lines=[];
+  const fetcher=async()=>new Response('data: '+JSON.stringify({jsonrpc:'2.0',id:2,result:{tools:[]}})+'\n',
+    {headers:{'content-type':'text/event-stream'}});
+  const bridge=new HttpBridge({server:{name:'remote',url:'http://127.0.0.1/mcp',headers:{}},db,fetcher,emit:line=>lines.push(JSON.parse(line))});
+  try{await bridge.accept(JSON.stringify(rpc(2,'tools/list')));}finally{await bridge.close();}
+  assert.equal(lines.length,1);assert.equal(lines[0].id,2);assert.equal(lines[0].error.code,-32000);
+});
+test('SSE handles split UTF-8, multiline data and CRLF events',async t=>{
+  const {db}=workspace(t),lines=[];
+  const text=': keepalive\r\n\r\ndata: {"jsonrpc":"2.0",\r\ndata: "method":"notifications/progress","params":{"text":"área"}}\r\n\r\n'+
+    'data: '+JSON.stringify({jsonrpc:'2.0',id:2,result:{tools:[]}})+'\r\n\r\n';
+  const bytes=Buffer.from(text,'utf8');
+  const fetcher=async()=>new Response(new ReadableStream({start(controller){for(const byte of bytes)controller.enqueue(Uint8Array.of(byte));controller.close();}}),
+    {headers:{'content-type':'text/event-stream'}});
+  const bridge=new HttpBridge({server:{name:'remote',url:'http://127.0.0.1/mcp',headers:{}},db,fetcher,emit:line=>lines.push(JSON.parse(line))});
+  try{await bridge.accept(JSON.stringify(rpc(2,'tools/list')));}finally{await bridge.close();}
+  assert.equal(lines.length,2);assert.equal(lines[0].params.text,'área');assert.equal(lines[1].id,2);
+});
+test('legacy SSE priming event with empty data is ignored',async t=>{
+  const {db}=workspace(t),lines=[];
+  const result={jsonrpc:'2.0',id:2,result:{tools:[]}};
+  const fetcher=async()=>new Response('id: stream-1\ndata:\n\ndata: '+JSON.stringify(result)+'\n\n',
+    {headers:{'content-type':'text/event-stream'}});
+  const bridge=new HttpBridge({server:{name:'remote',url:'http://127.0.0.1/mcp',headers:{}},db,fetcher,emit:line=>lines.push(JSON.parse(line))});
+  try{await bridge.accept(JSON.stringify(rpc(2,'tools/list')));}finally{await bridge.close();}
+  assert.deepEqual(lines,[result]);
+});
+test('legacy client responses accepted with HTTP 202 do not receive a second reply',async t=>{
+  const {db}=workspace(t),lines=[],requests=[];
+  const fetcher=async(_url,options)=>{requests.push(JSON.parse(options.body));return new Response(null,{status:202});};
+  const bridge=new HttpBridge({server:{name:'remote',url:'http://127.0.0.1/mcp',headers:{}},db,fetcher,emit:line=>lines.push(JSON.parse(line))});
+  try{await bridge.accept(JSON.stringify({jsonrpc:'2.0',id:8,result:{roots:[]}}));}finally{await bridge.close();}
+  assert.equal(requests.length,1);assert.deepEqual(lines,[]);
+});
+test('SSE error after a completed response does not produce a duplicate response',async t=>{
+  const {db}=workspace(t),lines=[];
+  const fetcher=async()=>new Response('data: '+JSON.stringify({jsonrpc:'2.0',id:2,result:{tools:[]}})+'\n\ndata: {invalid}\n\n',
+    {headers:{'content-type':'text/event-stream'}});
+  const bridge=new HttpBridge({server:{name:'remote',url:'http://127.0.0.1/mcp',headers:{}},db,fetcher,emit:line=>lines.push(JSON.parse(line))});
+  try{await bridge.accept(JSON.stringify(rpc(2,'tools/list')));}finally{await bridge.close();}
+  assert.equal(lines.length,1);assert.equal(lines[0].id,2);assert.deepEqual(lines[0].result.tools,[]);
+});
+for(const sse of [false,true])test(`HTTP bridge rejects an unrelated ${sse?'SSE':'JSON'} response id`,async t=>{
+  const {db}=workspace(t),lines=[],raw=JSON.stringify({jsonrpc:'2.0',id:99,result:{tools:[]}});
+  const fetcher=async()=>new Response(sse?'data: '+raw+'\n\n':raw,
+    {headers:{'content-type':sse?'text/event-stream':'application/json'}});
+  const bridge=new HttpBridge({server:{name:'remote',url:'http://127.0.0.1/mcp',headers:{}},db,fetcher,emit:line=>lines.push(JSON.parse(line))});
+  try{await bridge.accept(JSON.stringify(rpc(2,'tools/list')));}finally{await bridge.close();}
+  assert.equal(lines.length,1);assert.equal(lines[0].id,2);assert.equal(lines[0].error.code,-32000);
+});
+test('SSE duplicate terminal response is not forwarded twice',async t=>{
+  const {db}=workspace(t),lines=[],raw=JSON.stringify({jsonrpc:'2.0',id:2,result:{tools:[]}});
+  const fetcher=async()=>new Response('data: '+raw+'\n\ndata: '+raw+'\n\n',
+    {headers:{'content-type':'text/event-stream'}});
+  const bridge=new HttpBridge({server:{name:'remote',url:'http://127.0.0.1/mcp',headers:{}},db,fetcher,emit:line=>lines.push(JSON.parse(line))});
+  try{await bridge.accept(JSON.stringify(rpc(2,'tools/list')));}finally{await bridge.close();}
+  assert.equal(lines.length,1);assert.equal(lines[0].id,2);assert.deepEqual(lines[0].result.tools,[]);
+});
+test('HTTP bridge preserves correlated structured HTTP errors without retrying',async t=>{
+  const {db}=workspace(t),lines=[],requests=[];
+  const fetcher=async(_url,options)=>{
+    requests.push(JSON.parse(options.body));
+    return new Response(JSON.stringify({jsonrpc:'2.0',id:null,error:{code:-32020,message:'Header mismatch',data:{supported:['2025-11-25']}}}),
+      {status:400,headers:{'content-type':'application/json'}});
+  };
+  const bridge=new HttpBridge({server:{name:'remote',url:'http://127.0.0.1/mcp',headers:{}},db,fetcher,emit:line=>lines.push(JSON.parse(line))});
+  try{await bridge.accept(JSON.stringify(rpc(2,'tools/call',{name:'echo',arguments:{}})));}finally{await bridge.close();}
+  assert.equal(requests.length,1);assert.equal(lines.length,1);assert.equal(lines[0].id,2);
+  assert.equal(lines[0].error.code,-32020);assert.deepEqual(lines[0].error.data.supported,['2025-11-25']);
+});
+test('HTTP bridge rejects an unrelated structured HTTP error',async t=>{
+  const {db}=workspace(t),lines=[];
+  const fetcher=async()=>new Response(JSON.stringify({jsonrpc:'2.0',id:99,error:{code:-32020,message:'wrong'}}),
+    {status:400,headers:{'content-type':'application/json'}});
+  const bridge=new HttpBridge({server:{name:'remote',url:'http://127.0.0.1/mcp',headers:{}},db,fetcher,emit:line=>lines.push(JSON.parse(line))});
+  try{await bridge.accept(JSON.stringify(rpc(2,'tools/list')));}finally{await bridge.close();}
+  assert.equal(lines.length,1);assert.equal(lines[0].id,2);assert.equal(lines[0].error.code,-32000);
 });
 
 test('HTTP bridge launched as CLI subprocess can handle real JSON-RPC stdio',async t=>{

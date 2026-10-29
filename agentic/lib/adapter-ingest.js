@@ -15,7 +15,7 @@ export function validateAdapterRecord(value) {
       Object.keys(value).length !== FIELDS.size)
     throw Error('Unsupported adapter record: metadata-only schema required');
   if(value.version !== 1 || !FRAMEWORKS.has(value.framework) ||
-      !ID.test(value.agent) || !ID.test(value.tool) ||
+      typeof value.agent!=='string' || typeof value.tool!=='string' || !ID.test(value.agent) || !ID.test(value.tool) ||
       !KINDS.has(value.kind) || !STATUSES.has(value.status) ||
       !Number.isSafeInteger(value.elapsed_ms) || value.elapsed_ms < 0 || value.elapsed_ms > 3600000)
     throw Error('Unsupported adapter record value');
@@ -52,9 +52,13 @@ export function ingestAdapterFile({file, db}) {
         store.edge(framework,agent,'hosts');
         if(e.kind==='tool_call'||e.kind==='node_call'){
           store.node(tool,e.kind==='node_call'?'node':'tool',e.tool);
-          store.edge(agent,tool,e.kind==='node_call'?'executes_node':'calls_tool');
+          const relation=e.status==='denied'?(e.kind==='node_call'?'denied_node':'denied_tool'):
+            ['started','unverified'].includes(e.status)?(e.kind==='node_call'?'observes_node':'observes_tool'):
+            (e.kind==='node_call'?'executes_node':'calls_tool');
+          store.edge(agent,tool,relation);
         }
-        store.event({server:e.framework,direction:'response',kind:e.kind,
+        const direction=e.status==='started'?'request':e.status==='denied'?'denied':e.status==='unverified'?'observed':'response';
+        store.event({server:e.framework,direction,kind:e.kind,
           operation:e.status,tool:e.tool,status:e.status,latencyMs:e.elapsed_ms});
       }
       store.db.prepare('INSERT INTO adapter_imports(digest,count) VALUES (?,?)').run(digest,entries.length);

@@ -2,11 +2,14 @@
  * NEVER connects to an MCP server, executes a tool, or reproduces a real side effect.
  * SHA-256 chain catches accidental/unauthorized changes without proving origin/authenticity.
  */
-import {createHash} from 'node:crypto';
+import {createHash,createPrivateKey,createPublicKey,sign,verify} from 'node:crypto';
 import {lstatSync,readFileSync} from 'node:fs';
 import {DUMMY_AGENTS} from './lab.js';
+import {canonical} from './authority.js';
 
 const FORMAT='faraday-synthetic-timemachine';
+const CHECKPOINT_FORMAT='faraday-synthetic-trace-checkpoint-v1';
+const CHECKPOINT_DOMAIN=Buffer.from('FARADAY-SYNTHETIC-TRACE-CHECKPOINT-V1\0');
 const validName=x=>typeof x==='string'&&x.length>0&&x.length<=96&&/^[a-zA-Z0-9_.:-]+$/.test(x);
 const validOp=new Set(['read','write']);
 const sha=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
@@ -111,6 +114,27 @@ export function verifyTrace(trace){
     throw Error('TimeMachine recorded outcome inconsistent with policy');
   return {verified:true,steps:trace.steps.length,rootHash:trace.rootHash,kind:trace.kind,authenticity:'not-proven'};
 }
+export function signSyntheticCheckpoint({trace,privatePem,witnessId,issuedAt=Date.now()}={}){
+ const integrity=verifyTrace(trace);
+ if(!validName(witnessId)||!Number.isSafeInteger(issuedAt)||issuedAt<1)throw Error('Invalid synthetic checkpoint');
+ const key=createPrivateKey(privatePem);if(key.asymmetricKeyType!=='ed25519')throw Error('Invalid synthetic checkpoint key');
+ const claims={format:CHECKPOINT_FORMAT,traceDigest:sha(trace),rootHash:integrity.rootHash,steps:integrity.steps,witnessId,issuedAt};
+ return {claims,signature:sign(null,Buffer.concat([CHECKPOINT_DOMAIN,canonical(claims)]),key).toString('base64url')};
+}
+export function verifySyntheticCheckpoint({trace,checkpoint,publicPem,expectedWitnessId,expectedDigest}={}){
+ const integrity=verifyTrace(trace);
+ if(!isObj(checkpoint)||Object.keys(checkpoint).length!==2||!Object.hasOwn(checkpoint,'claims')||!Object.hasOwn(checkpoint,'signature'))throw Error('Invalid synthetic checkpoint');
+ const {claims,signature}=checkpoint,keys=['format','traceDigest','rootHash','steps','witnessId','issuedAt'];
+ if(!isObj(claims)||Object.keys(claims).length!==keys.length||!keys.every(key=>Object.hasOwn(claims,key))||claims.format!==CHECKPOINT_FORMAT||
+   !validName(expectedWitnessId)||claims.witnessId!==expectedWitnessId||!Number.isSafeInteger(claims.issuedAt)||claims.issuedAt<1||
+   typeof signature!=='string'||!/^[A-Za-z0-9_-]{86}$/.test(signature)||Buffer.from(signature,'base64url').toString('base64url')!==signature)throw Error('Invalid synthetic checkpoint');
+ const key=createPublicKey(publicPem);if(key.asymmetricKeyType!=='ed25519'||!verify(null,Buffer.concat([CHECKPOINT_DOMAIN,canonical(claims)]),key,Buffer.from(signature,'base64url')))throw Error('Invalid synthetic checkpoint signature');
+ if(claims.traceDigest!==sha(trace)||claims.rootHash!==integrity.rootHash||claims.steps!==integrity.steps)throw Error('Synthetic checkpoint trace mismatch');
+ const checkpointDigest=createHash('sha256').update(canonical(checkpoint)).digest('hex');
+ if(expectedDigest!==undefined&&(typeof expectedDigest!=='string'||!/^[a-f0-9]{64}$/.test(expectedDigest)||checkpointDigest!==expectedDigest))throw Error('Synthetic checkpoint pin mismatch');
+ return {verified:true,checkpointDigest,rootHash:integrity.rootHash,steps:integrity.steps,witnessId:claims.witnessId,
+  limitations:['Signature proves possession of the supplied key, not independent custody, trusted time or real execution.']};
+}
 export function replaySynthetic(trace,{policy}={}){
   const integrity=verifyTrace(trace);
   const target=policy===undefined?trace.policy:validatePolicy(policy);
@@ -140,6 +164,10 @@ export function diffSynthetic(before,after){
 export function readSyntheticTrace(path){
   const st=lstatSync(path);if(!st.isFile()||st.isSymbolicLink()||st.size>512*1024)throw Error('Unsafe trace file');
   const trace=JSON.parse(readFileSync(path,'utf8'));verifyTrace(trace);return trace;
+}
+export function readSyntheticCheckpoint(path){
+  const st=lstatSync(path);if(!st.isFile()||st.isSymbolicLink()||st.size>16*1024)throw Error('Unsafe checkpoint file');
+  return JSON.parse(readFileSync(path,'utf8'));
 }
 export function readReplayPolicy(path){
   const st=lstatSync(path);if(!st.isFile()||st.isSymbolicLink()||st.size>64*1024)throw Error('Unsafe policy file');

@@ -22,7 +22,9 @@ npm run pilot:eval    # 100 cryptographic MCP scenarios, no external calls
 npm run pilot:docker  # requires Docker Compose
 ```
 
-The reference demo returns `stolen=403`, `allowed=200`, `replay=403`, `direct=401` and a valid signed receipt. `pilot:docker` additionally tests actual network separation in a disposable Docker Compose deployment.
+The reference demo returns `stolen=403`, `allowed=200`, `replay=403`, `direct=401` and a valid signed receipt. `pilot:docker` requires a running Docker daemon and a non-root POSIX user. It creates a separate temporary Compose project and tests the disposable network topology.
+
+The Docker test now includes a separate synthetic rogue tool without agent or backend credentials. It attempts direct connections to the backend and to an outside fixture by IPv4 address, checks selected secret paths, read-only mounts, UID, capabilities and `no-new-privileges`, and sends anonymous and forged requests to the gateway. A separate control reaches the outside fixture; a successful authorized call confirms the backend is up. These checks cover only this Docker topology and selected paths, not arbitrary tools, host access, host compromise, all egress destinations or alternative credentials. The updated topology has not been run in the current environment because the Docker daemon is unavailable.
 
 ### MCP subset
 
@@ -54,6 +56,18 @@ This is **not** a conformant general-purpose MCP 2026 gateway, nor a standard OA
 - Backend service credential is shared only between gateway and backend, never agent.
 - Gateway receipt private key lives in the gateway (development-only limitation). Production needs independent signing/KMS-backed custody and signed backend acknowledgments.
 - Docker volumes are synthetic and ephemeral; in a real deployment, persistent encrypted storage, workload identity and read-only root filesystem are needed.
+
+## Optional Vault KV v2 reader
+
+The pilot gateway can read the backend credential from a Vault KV v2-compatible endpoint instead of `backendSecretFile`. Configure `vaultBackendSecret` in the trusted pilot JSON, for example:
+
+```json
+{"baseUrl":"https://vault.example","mount":"secret","secretPath":"gateway/backend","field":"backend_credential","tokenFile":"/run/secrets/vault-token"}
+```
+
+The two credential sources are mutually exclusive. The gateway reads the token file and fetches the latest KV v2 value for each tool request, without a stale fallback, and performs the final Authority, approval, OAuth and sentinel checks after this wait. A failed lookup returns 503 before spending the capability. HTTPS is required except when `allowLoopbackHttp` is explicitly `true` for local tests; redirects are rejected. The token and value must be available to the gateway process. Pilot entrypoints reject non-regular private files and insecure POSIX modes; Windows ACLs and path races are not verified.
+
+Tests use a local HTTP Vault-shaped fixture, not a Vault server. KV v2 stores a static value: updating it changes the gateway's next read, but the backend must also be rotated separately. This does not issue or revoke backend credentials, synchronize rotation, manage Vault tokens, isolate tenants, or provide KMS or Vault authentication lifecycle. Lookup occurs before the proof's signature is verified, so unauthenticated callers can cause Vault requests; operators need network access controls and rate limits. A malicious configured Vault endpoint, compromised process, host, or writable secret path can disclose credentials. Do not treat this preview as a production secrets broker.
 
 ## Future acceptance gates before 1.0
 

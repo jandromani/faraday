@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {spawnSync} from 'node:child_process';
 import {mkdtempSync,writeFileSync,symlinkSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {captureSynthetic,syntheticFixture,verifyTrace,replaySynthetic,diffSynthetic,readSyntheticTrace,readReplayPolicy} from '../lib/timemachine.js';
+import {captureSynthetic,syntheticFixture,verifyTrace,replaySynthetic,diffSynthetic,readSyntheticTrace,readReplayPolicy,signSyntheticCheckpoint,verifySyntheticCheckpoint} from '../lib/timemachine.js';
+import {newIdentity} from '../lib/authority.js';
 
 function temp(t){const d=mkdtempSync(join(tmpdir(),'faraday-time-test-'));t.after(()=>rmSync(d,{recursive:true,force:true}));return d;}
 test('E21 deterministic trace for same synthetic seed',()=>{
@@ -76,4 +78,32 @@ test('E21 metadata hash detects policy expansion and edited limitations',()=>{
   const x=captureSynthetic();x.policy.allow.push({agent:'adversary',tool:'pay_invoice',resource:'invoice:demo',op:'write'});
   assert.throws(()=>verifyTrace(x),/metadata corruption/);
   const y=captureSynthetic();y.limitations.push('incorrect assurance');assert.throws(()=>verifyTrace(y),/metadata corruption/);
+});
+test('E21 signed checkpoint binds the complete synthetic trace to a pinned key and optional digest',()=>{
+ const trace=captureSynthetic(),key=newIdentity(),checkpoint=signSyntheticCheckpoint({trace,privatePem:key.privatePem,witnessId:'test-witness',issuedAt:1234});
+ const options={trace,checkpoint,publicPem:key.publicPem,expectedWitnessId:'test-witness'},verified=verifySyntheticCheckpoint(options);
+ assert.equal(verified.verified,true);assert.equal(verifySyntheticCheckpoint({...options,expectedDigest:verified.checkpointDigest}).verified,true);
+ assert.throws(()=>verifySyntheticCheckpoint({...options,trace:captureSynthetic({seed:43})}),/trace mismatch/);
+ assert.throws(()=>verifySyntheticCheckpoint({...options,publicPem:newIdentity().publicPem}),/signature/);
+ assert.throws(()=>verifySyntheticCheckpoint({...options,expectedWitnessId:'other'}),/Invalid synthetic checkpoint/);
+ assert.throws(()=>verifySyntheticCheckpoint({...options,expectedDigest:'0'.repeat(64)}),/pin mismatch/);
+ const otherTrace=captureSynthetic({seed:43}),otherCheckpoint=signSyntheticCheckpoint({trace:otherTrace,privatePem:key.privatePem,witnessId:'test-witness',issuedAt:1235});
+ assert.throws(()=>verifySyntheticCheckpoint({...options,trace:otherTrace,checkpoint:otherCheckpoint,expectedDigest:verified.checkpointDigest}),/pin mismatch/);
+ const changed=structuredClone(checkpoint);changed.claims.issuedAt++;assert.throws(()=>verifySyntheticCheckpoint({...options,checkpoint:changed}),/signature/);
+});
+test('E21 checkpoint supports a large valid synthetic trace',()=>{
+ const fixture=syntheticFixture(),intents=Array.from({length:256},(_,index)=>({...fixture.intents[0],id:`synthetic-${index}`}));
+ const trace=captureSynthetic({policy:fixture.policy,intents}),key=newIdentity();assert.ok(Buffer.byteLength(JSON.stringify(trace))>16384);
+ const checkpoint=signSyntheticCheckpoint({trace,privatePem:key.privatePem,witnessId:'test-witness'});
+ assert.equal(verifySyntheticCheckpoint({trace,checkpoint,publicPem:key.publicPem,expectedWitnessId:'test-witness'}).steps,256);
+});
+test('E21 CLI signs and verifies a synthetic trace checkpoint',t=>{
+ const d=temp(t),trace=join(d,'trace.json'),checkpoint=join(d,'checkpoint.json'),privateKey=join(d,'private.pem'),publicKey=join(d,'public.pem'),key=newIdentity();
+ writeFileSync(trace,JSON.stringify(captureSynthetic()));writeFileSync(privateKey,key.privatePem,{mode:0o600});writeFileSync(publicKey,key.publicPem,{mode:0o600});
+ const command=args=>spawnSync(process.execPath,['bin/faraday.js','timemachine',...args],{encoding:'utf8',timeout:10000});
+ const signed=command(['checkpoint','--trace',trace,'--private-key',privateKey,'--witness','local-witness','--out',checkpoint]);assert.equal(signed.status,0,signed.stderr);
+ const verified=command(['verify-checkpoint','--trace',trace,'--checkpoint',checkpoint,'--public-key',publicKey,'--witness','local-witness']);assert.equal(verified.status,0,verified.stderr);
+ const pin=JSON.parse(verified.stdout).checkpointDigest;
+ assert.equal(command(['verify-checkpoint','--trace',trace,'--checkpoint',checkpoint,'--public-key',publicKey,'--witness','local-witness','--expected-sha256',pin]).status,0);
+ assert.notEqual(command(['verify-checkpoint','--trace',trace,'--checkpoint',checkpoint,'--public-key',publicKey,'--witness','local-witness','--expected-sha256','0'.repeat(64)]).status,0);
 });

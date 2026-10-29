@@ -36,10 +36,15 @@ for(const [description,ambiguousResponse] of [
   await assert.rejects(reconcileSyntheticOperation({operationId:opId,journal,backendUrl:'http://backend.example/internal/execute',backendSecret:f.backendSecret,
     backendPublicPem:backendKey.publicPem,receiptPrivatePem:gatewayKey.privatePem,receiptPublicPem:gatewayKey.publicPem,fetchFn:()=>{contacted=true;}}),/invalid-backend-endpoint/);
   assert.equal(contacted,false);
-  const result=await reconcileSyntheticOperation({operationId:opId,journal,backendUrl:backendUrl+'/internal/execute',backendSecret:f.backendSecret,
-    backendPublicPem:backendKey.publicPem,receiptPrivatePem:gatewayKey.privatePem,receiptPublicPem:gatewayKey.publicPem});
+  const options={operationId:opId,journal,backendUrl:backendUrl+'/internal/execute',backendSecret:f.backendSecret,
+    backendPublicPem:backendKey.publicPem,receiptPrivatePem:gatewayKey.privatePem,receiptPublicPem:gatewayKey.publicPem};
+  const outcomes=await Promise.allSettled([reconcileSyntheticOperation(options),reconcileSyntheticOperation(options)]);
+  const success=outcomes.filter(outcome=>outcome.status==='fulfilled'),failure=outcomes.filter(outcome=>outcome.status==='rejected');
+  assert.equal(success.length,1);assert.equal(failure.length,1);assert.match(failure[0].reason.message,/reconciliation-failed|not-reconcilable/);
+  const result=success[0].value;
   assert.equal(result.reconciled,true);assert.equal(result.executionRepeated,false);assert.equal(store.count(),1);
   assert.equal(journal.get(opId).state,'simulated');
+  assert.equal(journal.db.prepare('SELECT count(*) AS n FROM reconciliation_history WHERE operation_id=?').get(opId).n,1);
   assert.equal(verifyReceipt({publicPem:gatewayKey.publicPem,backendPublicPem:backendKey.publicPem,receipt:result.receipt}).backendVerified,true);
   assert.throws(()=>journal.reconcile(opId,result.receipt),/not-reconcilable/);
 });

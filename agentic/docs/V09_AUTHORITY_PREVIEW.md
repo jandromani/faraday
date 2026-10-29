@@ -23,6 +23,7 @@ DUMMY AGENT (agent private key) ---- signed action proof (capability fingerprint
 - The issuer signs a capability authorizing one exact `agent`, `tool`, `resource`, `action`, hashed arguments, policy rule and audience. TTL 1–300s. **Issuer private key stays outside the gateway** in the reference deployment.
 - An agent must demonstrate possession of the pinned Ed25519 private key twice: signed issuance intent and a separate signed execution proof bound to the exact issued capability.
 - The gateway rechecks current policy, key binding, expiry, audience, tool, action, resource, arguments and nonce before a downstream request. Capability and execution nonces are atomically consumed in one SQLite transaction.
+- `NonceLedger.revoke(kind, value)` persistently denies an `agent`, issuer key ID (`issuer`), or capability JTI (`capability`) in that ledger. The issuer and gateway check their own ledger transactionally when spending nonces. For example, an authorized local operator may open the appropriate ledger and call `ledger.revoke('agent', agentId)`. This is a local API, not an authenticated administrative service.
 - The backend accepts calls only with a gateway-owned service secret. Its synthetic invoice handler has its own minimal allowlist and idempotency check. **No real payments or external side effects.**
 - Gateway HTTP `/execute` is **a proprietary synthetic preview API, not an MCP OAuth authorization endpoint**; MCP compliance and real workload attestation are not yet implemented for this gateway.
 
@@ -68,6 +69,8 @@ npm run lab:docker  # requires Docker + Docker Compose, performs isolated-networ
 - **No OAuth 2.1 MCP HTTP authorization.** Production services need protected resource metadata, access tokens bound to the exact resource audience and proper 401/403 semantics.
 - **No universally mandatory gateway.** Existing `stdio`/HTTP adapters remain optional and directly accessible outside the protected Docker topology. Deployments must enforce credential separation and network policies explicitly.
 - **No distributed replay protection.** SQLite single-node ledger; crashes after a spent capability can cause an incomplete action. Retrying must issue a new capability after operator-controlled reconciliation; never silently repeat high-impact calls.
+- **Local revocation is not a lifecycle service.** Issuer and gateway ledgers are separate unless explicitly configured otherwise; revocations do not propagate between them or other nodes. A revocation committed before the ledger authorization transaction blocks it; one committed afterward cannot cancel a request already authorized or sent. There is no authenticated admin API, revocation audit trail, automatic expiration or supported unrevocation workflow. Reusing an issuer key ID retains its revocation. Protect the ledger and its backups; Windows ACLs are not verified.
+- **Policy schema is strict.** Each rule must have a nonempty ID and exact agent/tool/resource/action strings, a `required` array of distinct argument keys, and only supported optional `exactKeys`, `equal`, and positive integer `maxAmountCents` fields. Unknown or invalid rule fields fail closed; this can reject previously accepted malformed policies. Replacing an in-memory policy does not provide persisted, distributed policy management.
 - **No general-purpose JSON Schema validation:** the example policy uses exact fields plus recipient/currency/amount checks. Other tools need explicit validators and test cases.
 - **No production multi-tenancy, sandbox or audit receipts.** Gateway writes bounded metadata to local graph only when configured; does not emit signed evidence of downstream execution.
 - **No user-level rate limits or authenticated approval workflow.** Cannot treat the synthetic fixture as financial authorization.
@@ -75,7 +78,7 @@ npm run lab:docker  # requires Docker + Docker Compose, performs isolated-networ
 
 ## Next milestones (v0.95/v1.0)
 
-1. Real workload identity/SPIFFE attestation, OAuth/resource audience, dynamic revocation and key rotation.
+1. Real workload identity/SPIFFE attestation, OAuth/resource audience, authenticated distributed revocation and key rotation.
 2. Resource-specific policies for heterogeneous tools, independent policy service and human approval.
 3. Dedicated network sandbox and secured production deployment with direct tool/network access blocked.
 4. Distributed idempotency, durable failure recovery, signing and independent verification of execution receipts.

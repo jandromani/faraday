@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync,writeFileSync,chmodSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {pathToFileURL} from 'node:url';
+import {spawn} from 'node:child_process';
 import {newIdentity,createIntent,createExecution,AuthorityGate,AuthorityIssuer,NonceLedger,AuthorityError,readKeyFile} from '../lib/authority.js';
 import {fixture,AGENT,TOOL,RESOURCE,ACTION,ARGS,POLICY} from '../lib/authority-fixture.js';
 import {createAuthorityGateway,createSyntheticBackend} from '../lib/authority-gateway.js';
@@ -31,6 +33,27 @@ test('issuance replays and policy privilege expansion fail closed',t=>{
   assert.throws(()=>f.iss.issue(createIntent({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:{...ARGS,amount_cents:30000},agentPrivatePem:f.agent.privatePem,now:1_800_000_000})),/policy-denied/);
   assert.throws(()=>f.iss.issue(createIntent({agent:AGENT,tool:TOOL,resource:'invoice:other',action:ACTION,args:ARGS,agentPrivatePem:f.agent.privatePem,now:1_800_000_000})),/policy-denied/);
 });
+test('malformed monetary policy bounds fail closed without consuming capability',t=>{
+  const {f}=setup(t),original=f.gate.policy;
+  for(const maxAmountCents of ['not-a-number','20000',null,NaN,Infinity,-1,0,1.5]){
+    f.gate.policy={...POLICY,rules:POLICY.rules.map(rule=>({...rule,maxAmountCents}))};
+    assert.throws(()=>f.gate.authorize({capability:f.capability,proof:f.proof}),/invalid-policy/);
+  }
+  f.gate.policy=original;
+  assert.equal(f.gate.authorize({capability:f.capability,proof:f.proof}).rule,'fake-invoice-only');
+});
+test('malformed policy rules fail closed even after a matching rule',t=>{
+  const {f}=setup(t),original=f.gate.policy,rule=POLICY.rules[0];
+  const invalid=[{...rule,exactKeys:'true'},{...rule,equal:null},{...rule,equal:[]},
+    {...rule,required:['currency','currency']},{...rule,required:'currency'},
+    {...rule,id:''},{...rule,maxAmountCent:20000},null];
+  for(const bad of invalid){
+    f.gate.policy={...POLICY,rules:[rule,bad]};
+    assert.throws(()=>f.gate.authorize({capability:f.capability,proof:f.proof}),/invalid-policy/);
+  }
+  f.gate.policy=original;
+  assert.ok(f.gate.authorize({capability:f.capability,proof:f.proof}));
+});
 test('issuer signing private key not needed by gateway, issuer rotation rejects capability',t=>{
   const {f,dir,ledgers}=setup(t);
   assert.ok(!Object.values(f.gate.keys).some(v=>v.includes('PRIVATE KEY')));
@@ -44,9 +67,68 @@ test('gateway rejects stale times, unknown agent and different policy versions',
   const revoked=new AuthorityGate({issuerKeys:{'lab-issuer':f.issuer.publicPem},registry:{},policy:POLICY,ledger:new NonceLedger(join(dir,'revoked.sqlite')),now:()=>1_800_000_000});
   ledgers.push(revoked.ledger);assert.throws(()=>revoked.authorize({capability:f.capability,proof:f.proof}),/unknown-agent/);
 });
+for(const kind of ['agent','issuer','capability'])test(`local ${kind} revocation persists and blocks unspent capability`,t=>{
+  const {f,dir,ledgers}=setup(t);
+  const capability=JSON.parse(Buffer.from(f.capability,'base64url').toString('utf8'));
+  const value=kind==='agent'?AGENT:kind==='issuer'?'lab-issuer':capability.payload.jti;
+  const writer=new NonceLedger(join(dir,'gateway.sqlite'));ledgers.push(writer);
+  writer.revoke(kind,value);writer.revoke(kind,value);
+  assert.throws(()=>f.gate.authorize({capability:f.capability,proof:f.proof}),/authority-revoked/);
+  const reopened=new NonceLedger(join(dir,'gateway.sqlite'));ledgers.push(reopened);
+  const gate=new AuthorityGate({issuerKeys:{'lab-issuer':f.issuer.publicPem},registry:f.registry,policy:POLICY,ledger:reopened,now:()=>1_800_000_000});
+  assert.throws(()=>gate.authorize({capability:f.capability,proof:f.proof}),/authority-revoked/);
+  assert.equal(reopened.db.prepare('SELECT COUNT(*) AS n FROM consumed').get().n,0);
+});
+test('issuer revocation is local to its ledger and blocks fresh issuance',t=>{
+  const {f}=setup(t);
+  f.issuerLedger.revoke('agent',AGENT);
+  const intent=createIntent({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS,agentPrivatePem:f.agent.privatePem,now:1_800_000_000});
+  assert.throws(()=>f.iss.issue(intent),/authority-revoked/);
+  assert.ok(f.gate.authorize({capability:f.capability,proof:f.proof}));
+  assert.throws(()=>f.issuerLedger.revoke('unknown','value'),/invalid-revocation/);
+});
+test('revocation storage errors do not look like successful revocations',t=>{
+  const {f}=setup(t);
+  f.gatewayLedger.db.exec("CREATE TRIGGER reject_revocation BEFORE INSERT ON revoked BEGIN SELECT RAISE(FAIL,'unavailable'); END");
+  assert.throws(()=>f.gatewayLedger.revoke('agent',AGENT),/revocation-ledger-unavailable/);
+  f.gatewayLedger.db.exec('DROP TABLE revoked');
+  assert.throws(()=>f.gate.authorize({capability:f.capability,proof:f.proof}),/ledger-unavailable/);
+});
+test('signed proof schemas reject separator collisions',t=>{
+  const {f}=setup(t),payload={...f.proof.payload};
+  delete payload.action;delete payload.agent;payload['action|agent']='synthetic';
+  assert.throws(()=>f.gate.authorize({capability:f.capability,proof:{...f.proof,payload}}),/invalid-claims/);
+  assert.ok(f.gate.authorize({capability:f.capability,proof:f.proof}));
+});
+test('invalid authority clock fails closed without consuming capability',t=>{
+  const {f}=setup(t),clock=f.gate.now;
+  for(const now of [NaN,Infinity,1.5,'1800000000']){
+    f.gate.now=()=>now;
+    assert.throws(()=>f.gate.authorize({capability:f.capability,proof:f.proof}),/expired-or-invalid-time/);
+  }
+  f.gate.now=clock;assert.ok(f.gate.authorize({capability:f.capability,proof:f.proof}));
+});
 test('concurrent uses of the same token: one success only',async t=>{
   const {f}=setup(t);const outcomes=await Promise.all(Array.from({length:16},()=>Promise.resolve().then(()=>{try{f.gate.authorize({capability:f.capability,proof:f.proof});return 'ok';}catch{return 'denied';}})));
   assert.equal(outcomes.filter(x=>x==='ok').length,1);
+});
+test('independent processes atomically consume one capability',async t=>{
+  const {f,dir}=setup(t),moduleUrl=pathToFileURL(join(process.cwd(),'lib','authority.js')).href;
+  const script=`import {AuthorityGate,NonceLedger} from ${JSON.stringify(moduleUrl)};
+let input='';for await(const chunk of process.stdin)input+=chunk;
+const config=JSON.parse(input),ledger=new NonceLedger(config.db);
+try{const gate=new AuthorityGate({...config,ledger,now:()=>1800000000});gate.authorize({capability:config.capability,proof:config.proof});process.stdout.write('allowed');}
+catch(error){process.stdout.write(error.code||'unexpected');}finally{ledger.close();}`;
+  const config=JSON.stringify({db:join(dir,'gateway.sqlite'),issuerKeys:{'lab-issuer':f.issuer.publicPem},registry:f.registry,policy:POLICY,capability:f.capability,proof:f.proof});
+  const runs=Array.from({length:6},()=>new Promise((resolve,reject)=>{
+    const child=spawn(process.execPath,['--no-warnings','--input-type=module','-e',script],{stdio:['pipe','pipe','pipe']});
+    let output='',errors='';child.stdout.on('data',chunk=>output+=chunk);child.stderr.on('data',chunk=>errors+=chunk);
+    child.on('error',reject);child.on('close',code=>code===0?resolve(output):reject(Error(errors||`exit ${code}`)));
+    child.stdin.end(config);
+  }));
+  const outcomes=await Promise.all(runs);
+  assert.equal(outcomes.filter(value=>value==='allowed').length,1);
+  assert.equal(outcomes.filter(value=>value==='capability-replayed-or-ledger-unavailable').length,5);
 });
 test('private key file can be read',t=>{
   const {dir}=setup(t);const path=join(dir,'private.pem');writeFileSync(path,newIdentity().privatePem,{mode:0o600});

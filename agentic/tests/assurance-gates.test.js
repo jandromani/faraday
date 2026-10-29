@@ -1,12 +1,21 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import {generateKeyPairSync,sign} from 'node:crypto';
-import {evaluateAssurance,signableAttestationDigest,ASSURANCE_FORMAT} from '../lib/assurance-gates.js';
+import {evaluateAssurance,signableAttestationDigest,ASSURANCE_FORMAT,evaluateEnterpriseReference,ENTERPRISE_REFERENCE_CONTROLS} from '../lib/assurance-gates.js';
 const commit='b'.repeat(40);
 const sample=(adversarial='pass')=>({format:ASSURANCE_FORMAT,commit,checks:[
  {id:'unit',kind:'unit',result:'pass',source:'ci/node',commit},
  {id:'integration',kind:'integration',result:'pass',source:'ci/http',commit},
  {id:'network',kind:'adversarial_deployment',result:adversarial,source:'ci/docker',commit},
 ]});
+test('E31 reference controls default to gaps and declarations never prove enterprise readiness',()=>{
+ const missing=evaluateEnterpriseReference({commit});assert.equal(missing.blockers.length,ENTERPRISE_REFERENCE_CONTROLS.length+1);assert.equal(missing.enterpriseReady,false);
+ const checks=ENTERPRISE_REFERENCE_CONTROLS.map(id=>({id,result:'pass',evidenceSha256:'a'.repeat(64)}));
+ const report=evaluateEnterpriseReference({commit,checks});assert.deepEqual(report.blockers,['control-evidence-not-verified']);assert.equal(report.enterpriseReady,false);
+ assert.match(report.limitation,/not evidence verification/);
+ assert.throws(()=>evaluateEnterpriseReference({commit,checks:[{id:'tls',result:'pass'}]}),/missing evidence/);
+ assert.throws(()=>evaluateEnterpriseReference({commit,checks:[checks[0],checks[0]]}),/duplicate/);
+ assert.throws(()=>evaluateEnterpriseReference({commit,checks:[{id:'fake',result:'pass'}]}),/invalid reference/);
+});
 test('Developer profile requires unit + integration + adversarial deployment',()=>{
  const r=evaluateAssurance(sample(),{expectedCommit:commit});assert.equal(r.passed,true);assert.equal(r.enterpriseReady,false);
 });

@@ -34,7 +34,7 @@ Each server is probed in a fresh process with **both legacy and modern protocol 
 
 ## Cold install / rollback matrix
 
-The workflow `mcp-live-interop.yml` also exercises Linux, macOS and Windows: `npm pack` -> local offline installation in a fresh prefix -> `faraday init` -> reversible `install` -> `uninstall` -> `doctor`. It validates equality of the original server entry and stores a runtime duration. It does not edit actual IDE profiles and does not measure human onboarding.
+The historical workflow `mcp-live-interop.yml` exercised Linux, macOS and Windows with `npm pack`, offline installation, initialization, reversible instrumentation and doctor. The current smoke checks installation and rollback only on non-Windows platforms; Windows checks dry-run and the intentional rejection of automatic installation while backup ACLs are unverified. It verifies the configuration remains unchanged and no backup is created. The updated workflow has not yet been run in CI. It does not edit actual IDE profiles and does not measure human onboarding.
 
 **Exit gate:** claim only the environments whose GitHub Actions jobs pass. On failures retain E05/E06 as partially verified and publish the precise limitation.
 

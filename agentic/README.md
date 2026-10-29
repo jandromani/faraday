@@ -55,9 +55,21 @@ Details, code samples and support caveats: [docs/V098_FRAMEWORK_ADAPTERS.md](doc
 crash-recovery journal and independently verifiable gateway-signed Ed25519 receipts.
 Everything operates on *fake invoice tools only*; no payments or external tools execute.
 
+## MemoryGuard Preview
+
+An opt-in local quarantine verifies signed document provenance and requires explicit review before retrieval. It is not connected to the AI advisor or a RAG index, and signatures do not establish content safety. See [MemoryGuard operations and limitations](docs/MEMORY_GUARD_PREVIEW.md).
+
+The separate [local lab campaigns](docs/LAB_CAMPAIGNS_PREVIEW.md) exercise scripted roles, reviewed synthetic memory, a loopback MCP backend and bounded reactive attack attempts. They are not autonomous agents, an independent red team or a replacement for the existing 350 lab gaps.
+
+The same document describes bounded concurrent gateway measurements, deterministic mutation coverage and a local socket-loss test. These are not external benchmarks or distributed chaos tests. [Compatibility evidence](docs/COMPATIBILITY.md) includes one local official MCP client/server workflow through the stdio proxy.
+
+[Offline release evidence](docs/RELEASE_EVIDENCE_PREVIEW.md) can bind a local archive and file inventory to an operator's pinned Ed25519 key. It is not build provenance, a dependency SBOM or a published release.
+
+The local read-only viewer can optionally inspect a specific pilot recovery journal with `faraday serve --journal /path/to/journal.sqlite`. It cannot retry or alter operations and does not provide authenticated operator identities, RBAC or an enterprise administration workflow. Anyone holding its local session token can read the exposed metadata.
+
 ## v0.97 — TimeMachine, Recovery Inspector and Local Benchmarks
 
-Offline **synthetic** trace replay only: no real tools are executed. Deterministic 12-actor fixture, hash-chain integrity checks (NOT signatures), alternative-policy impact comparison, read-only inspection of uncertain/stale SQLite journal operations and local microbenchmarks (not a performance SLA).
+Offline **synthetic** trace replay only: no real tools are executed. Deterministic 12-actor fixture, hash-chain integrity checks and optional locally signed checkpoints, alternative-policy comparison, read-only inspection of uncertain/stale SQLite journal operations and local microbenchmarks (not a performance SLA). A checkpoint does not establish independent custody or provenance of real workflows.
 
 ```bash
 faraday timemachine capture --seed 42 --out synthetic-trace.json
@@ -72,7 +84,7 @@ Read [v0.97 technical limitations and safety guarantees](docs/V097_TIMEMACHINE_R
 
 ## v0.96 — Operator Controls and Adversarial Tests
 
-Secure Pilot now optionally requires **two independent signed offline approvals** for an MCP tool execution, bound to its exact capability, arguments, resource and expiry. A new **Sentinel** offers local emergency stop, temporary quarantine and a hash-linked (not tamper-proof) event log; **Budget** enforces a per-agent call quota in single-node SQLite. The synthetic Docker fixture enables both two-person approval and these controls.
+Secure Pilot optionally requires **two distinct signed offline approvals** for an MCP tool execution, bound to its exact capability, arguments, resource and expiry. These keys do not establish real human identity. **Sentinel** offers local emergency stop, temporary quarantine and a hash-linked (not tamper-proof) event log; **Budget** enforces local per-agent and optionally organization call quotas in SQLite. The synthetic Docker fixture enables two synthetic approvals and these controls.
 
 ```bash
 # Experimental synthetic example; this does NOT modify arbitrary MCP tools
@@ -193,6 +205,8 @@ faraday install --config /path/to/agent-project/.mcp.json --server my-server \
 
 On supported POSIX systems the installer wraps one selected **strict-JSON stdio or Streamable HTTP MCP server** and backs up the original launch entry in `.faraday/targets/` using POSIX file modes. Backups may contain credentials and must remain private. For stdio it forwards the original wire bytes unchanged. For HTTP servers it converts JSON-RPC stdio frames into authenticated HTTP POST requests and translates JSON/SSE responses back into JSON-RPC stdio frames, passing authorized tool calls through to the existing upstream. **The HTTP bridge is not transparent at the transport layer**, and neither adapter enforces Gate policies. `uninstall` refuses to overwrite a wrapper modified externally.
 
+New installations record the complete wrapper in the backup and require an exact match before rollback. Backups created by older versions do not contain that snapshot and retain the older, partial change check; inspect those configurations manually before uninstalling. A local actor able to modify both configuration and backup is outside this check's protection.
+
 ### Event retention
 
 Preview an event cutoff, then explicitly apply it:
@@ -203,6 +217,15 @@ faraday graph prune --db /path/to/graph.sqlite --before 2026-01-01T00:00:00.000Z
 ```
 
 Only event rows strictly older than the UTC cutoff are affected. Nodes, edges, contracts, other databases and backups are not removed. SQLite WAL, free pages and backups may retain deleted content; this is not secure erasure or a complete personal-data deletion mechanism. The preview is a snapshot and can change before applying it.
+
+To remove all rows in the known graph tables, separately preview and explicitly confirm the destructive operation:
+
+```bash
+faraday graph clear --db /path/to/graph.sqlite
+faraday graph clear --db /path/to/graph.sqlite --apply --confirm DELETE-ALL-GRAPH-DATA
+```
+
+The transaction clears events, nodes, edges and contracts for the entire graph, plus the adapter-import deduplication index when present, not a selected user or organization. Other tables and databases, SQLite WAL/free pages, backups and exports are outside its scope; it is not secure erasure. Stop writers first: they can repopulate the graph, and preview counts can change before deletion.
 
 ### Iteration 3 — Contracts and impact analysis
 

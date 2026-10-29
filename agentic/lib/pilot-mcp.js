@@ -35,11 +35,11 @@ async function bounded(response,maxBytes=8192){
   finally{reader.releaseLock();}
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
-export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,receiptPrivatePem,backendPublicPem,
+export function createSecurePilotGateway({gate,backendUrl,backendSecret,backendSecretProvider=null,journal,receiptPrivatePem,backendPublicPem,
       fetchFn=fetch,onEvent=()=>{},now=()=>Math.floor(Date.now()/1000),allowedOrigins=[],
   approvalConfig=null,sentinel=null,budget=null,oauthResource=null,externalPolicy=null,allowInsecureBackend=false}){
   const endpoint=pilotBackendEndpoint(backendUrl,{allowInsecureBackend});
-  if(typeof backendSecret!=='string'||backendSecret.length<32||!gate||!journal||typeof journal.reserve!=='function'||!receiptPrivatePem||!backendPublicPem)throw Error('Secure Pilot requires gate, journal, gateway/backend signing identities and service credential');
+  if((backendSecretProvider===null?(typeof backendSecret!=='string'||backendSecret.length<32):(typeof backendSecretProvider!=='function'||backendSecret!==undefined))||!gate||!journal||typeof journal.reserve!=='function'||!receiptPrivatePem||!backendPublicPem)throw Error('Secure Pilot requires gate, journal, gateway/backend signing identities and service credential');
   if(approvalConfig && (!approvalConfig.approverKeys||!Number.isSafeInteger(approvalConfig.quorum)||approvalConfig.quorum<1))throw Error('Invalid approval configuration');
   const evaluateExternalPolicy=externalPolicy===null?null:createFailClosedGatewayPolicyPort(externalPolicy);
   return http.createServer(async(req,res)=>{
@@ -84,7 +84,7 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,
     const remote=req.socket.remoteAddress??'unknown';
     try{if(sentinel?.isBlocked(remote))return json(res,403,rpcError(msg.id,-32003,'FARADAY execution suspended'));}
     catch{return json(res,503,rpcError(msg.id,-32004,'FARADAY incident ledger unavailable'));}
-    let auth;
+    let auth,currentSecret=backendSecret,approvalEvidence=null;
     try{
       if(msg.params?.name!=='pay_invoice'||!msg.params.arguments||typeof msg.params.arguments!=='object'||Array.isArray(msg.params.arguments))throw new AuthorityError('unknown-tool');
       const capability=req.headers['x-faraday-capability'];
@@ -98,18 +98,27 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,
         if(sentinel?.isBlocked(remote))throw new AuthorityError('execution-suspended');
         if(oauthResource)oauthIdentity=oauthResource.verifyAuthorization(req.headers.authorization,oauthResource.executeScope);
       }
+      if(backendSecretProvider){
+        try{currentSecret=await backendSecretProvider();if(typeof currentSecret!=='string'||currentSecret.length<32||currentSecret.length>4096||!/^[A-Za-z0-9_+=./:-]+$/.test(currentSecret))throw Error('invalid-credential');}
+        catch{return json(res,503,rpcError(msg.id,-32004,'Backend credential unavailable'));}
+        if(sentinel?.isBlocked(remote))throw new AuthorityError('execution-suspended');
+        if(oauthResource)oauthIdentity=oauthResource.verifyAuthorization(req.headers.authorization,oauthResource.executeScope);
+      }
       if(approvalConfig){
-        verifyApprovals({bundle:decodeApprovals(req.headers['x-faraday-approvals']),
+        const bundle=decodeApprovals(req.headers['x-faraday-approvals']);
+        if(!gate.registry||!Object.hasOwn(gate.registry,proof.payload?.agent))throw new AuthorityError('unknown-agent');
+        const approval=verifyApprovals({bundle,
           approverKeys:approvalConfig.approverKeys,quorum:approvalConfig.quorum,requiredRoles:approvalConfig.requiredRoles??[],
           capability,agent:proof.payload.agent,tool:proof.payload.tool,resource:proof.payload.resource,
-          action:proof.payload.action,args:msg.params.arguments,now:now()});
+          action:proof.payload.action,args:msg.params.arguments,now:now(),excludedPublicPem:gate.registry[proof.payload.agent]});
+        approvalEvidence={approvalDigest:approval.approvalDigest,bundle};
       }
           if(oauthResource&&oauthIdentity.subject!==proof.payload?.agent)throw new AuthorityError('oauth-agent-mismatch');
       auth=gate.authorize({capability,proof});
       if(oauthResource&&oauthIdentity.subject!==auth.agent)throw new AuthorityError('oauth-agent-mismatch');
       if(auth.tool!=='pay_invoice'||auth.resource!=='invoice:demo'||auth.action!=='pay')throw new AuthorityError('invalid-scope');
       budget?.consume(auth.agent);
-      journal.reserve(auth.jti,digest({tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args}));
+      journal.reserve(auth.jti,digest({tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args}),{approvalEvidence});
     }catch(e){const reason=e instanceof AuthorityError?e.code:'invalid-request';
       try{onEvent({status:'denied',reason});}catch{}
       try{sentinel?.record('deny',remote,reason);}catch{return json(res,503,rpcError(msg.id,-32004,'FARADAY incident ledger unavailable'));}
@@ -117,7 +126,7 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,journal,
     let outcome='upstream-uncertain',responseHash=null,backendAttestation=null;
     try{
       const upstream=await fetchFn(endpoint,{method:'POST',redirect:'error',signal:AbortSignal.timeout(3000),headers:{
-        'content-type':'application/json','authorization':`Bearer ${backendSecret}`},body:JSON.stringify({
+        'content-type':'application/json','authorization':`Bearer ${currentSecret}`},body:JSON.stringify({
         tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args,operationId:auth.jti})});
       const result=await bounded(upstream);
       const expected=digest({tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args});

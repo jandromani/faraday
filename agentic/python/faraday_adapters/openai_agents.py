@@ -51,5 +51,5 @@ def make_run_hooks(*, recorder: Recorder):
         async def on_tool_start(self, context, agent, tool):
             recorder.record('openai-agents', str(agent.name), str(tool.name), 'tool_call', 'started')
         async def on_tool_end(self, context, agent, tool, result):
-            recorder.record('openai-agents', str(agent.name), str(tool.name), 'tool_call', 'ok')
+            recorder.record('openai-agents', str(agent.name), str(tool.name), 'tool_call', 'unverified')
     return FaradayHooks()

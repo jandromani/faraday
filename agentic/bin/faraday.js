@@ -13,7 +13,7 @@ import { compareSnapshots, readSnapshot, snapshotFromStore, saveSnapshot, genera
 import { fetchFreeModels, explainFree, graphFromDatabase, makeContractAdvisoryData } from '../lib/ai-free.js';
 import {auditWorkspace} from '../lib/security-audit.js';
 import {DUMMY_AGENTS, DISTRIBUTION, runLab, labConfig} from '../lib/lab.js';
-import {diffAuthority, readPolicy, affectedClients} from '../lib/trust-diff.js';
+import {diffAuthority, readPolicy, affectedClients, simulateObservedDecisions, readObservedDecisions} from '../lib/trust-diff.js';
 import {compatibilityReport} from '../lib/compatibility.js';
 import {probeStdio} from '../lib/mcp-live-probe.js';
 import {runAuthorityDemo,runAuthorityEvaluations} from '../lib/authority-demo.js';
@@ -23,10 +23,12 @@ import {verifyReceipt} from '../lib/pilot-receipts.js';
 import {LocalSentinel} from '../lib/sentinel.js';
 import {signApproval,verifyApprovals} from '../lib/approvals.js';
 import {readKeyFile} from '../lib/authority.js';
-import {captureSynthetic,readSyntheticTrace,replaySynthetic,diffSynthetic,readReplayPolicy} from '../lib/timemachine.js';
+import {captureSynthetic,readSyntheticTrace,replaySynthetic,diffSynthetic,readReplayPolicy,signSyntheticCheckpoint,verifySyntheticCheckpoint,readSyntheticCheckpoint} from '../lib/timemachine.js';
 import {runBenchmarks} from '../lib/benchmarks.js';
 import {inspectRecovery} from '../lib/recovery-inspector.js';
+import {createSignedJournalBackup,verifySignedJournalBackup,restoreVerifiedJournalBackup} from '../lib/journal-backup.js';
 import {ingestAdapterFile} from '../lib/adapter-ingest.js';
+import {LocalMemoryGuard,readMemoryJson,signMemoryDocument} from '../lib/memory-guard.js';
 import {runSyntheticWorkflow,runWorkflowEvaluations} from '../lib/workflow-e2e.js';
 import {readWorkflowTrace,verifyWorkflowTrace} from '../lib/workflow-trace.js';
 import {readFileSync,existsSync} from 'node:fs';
@@ -44,12 +46,13 @@ Usage:
   faraday scan [--root PATH] [--db PATH] [--include-global] [--json]
   faraday graph [--db PATH] [--format json|mermaid]
   faraday graph prune --db PATH --before ISO_UTC [--apply]
+  faraday graph clear --db PATH [--apply --confirm DELETE-ALL-GRAPH-DATA]
   faraday proxy --config FILE --server NAME [--db PATH] [--debug-stderr] [--policy FILE]
   faraday bridge --config FILE --server NAME [--db PATH] [--policy FILE]
   faraday hook --config FILE --server NAME [--db PATH]
   faraday install --config FILE --server NAME [--db PATH] [--dry-run] [--policy FILE]
   faraday uninstall --config FILE --server NAME
-  faraday serve [--db PATH] [--port 0]
+  faraday serve [--db PATH] [--journal JOURNAL] [--port 0]
   faraday doctor [--root PATH] [--json]
   faraday onboard [--root PATH] [--json]
   faraday init [--root PATH] [--dry-run]
@@ -64,7 +67,7 @@ Usage:
   faraday lab fixture --out DIR
   faraday compat [--root PATH] [--include-global] [--json]
   faraday compat probe --config FILE --server NAME [--protocol auto|modern|legacy] [--timeout-ms 8000] [--out FILE] [--call-tool NAME --allow-call]
-  faraday trust diff --base POLICY --current POLICY [--db PATH] [--fail-on-expansion]
+  faraday trust diff --base POLICY --current POLICY [--db PATH] [--observations FILE] [--fail-on-expansion] [--fail-on-divergence]
   faraday authority demo # synthetic end-to-end gateway authorization
   faraday authority eval [--limit 100] [--out FILE]
   faraday pilot demo
@@ -72,12 +75,19 @@ Usage:
   faraday pilot verify --receipt FILE --public-key FILE
   faraday approval sign --request FILE --approver NAME --private-key FILE --out FILE
   faraday approval verify --request FILE --bundle FILE --keys FILE [--quorum 2]
-  faraday sentinel status|verify|stop|resume --db PATH
+  faraday sentinel status|verify|stop|resume|alerts|deliver|recover --db PATH
+  faraday memory sign --file DOCUMENT --private-key KEY --out PACKET
+  faraday memory ingest|list|inspect|approve|approved --db PATH --keys SOURCES [--file PACKET] [--digest HASH] [--reviewer NAME]
   faraday timemachine capture [--seed 42] [--out FILE]
   faraday timemachine replay --trace FILE [--policy FILE] [--fail-on-divergence]
   faraday timemachine diff --base FILE --current FILE
+  faraday timemachine checkpoint --trace FILE --private-key KEY --witness NAME --out FILE
+  faraday timemachine verify-checkpoint --trace FILE --checkpoint FILE --public-key KEY --witness NAME [--expected-sha256 HASH]
   faraday benchmark [--iterations 200] [--out FILE]
   faraday recovery inspect --db JOURNAL [--stale-ms 60000]
+  faraday recovery backup --db JOURNAL --out BACKUP --private-key KEY
+  faraday recovery verify --backup-file BACKUP --public-key KEY [--expected-sha256 HASH] [--min-created-at MS]
+  faraday recovery restore --backup-file BACKUP --out NEW_JOURNAL --public-key KEY [--expected-sha256 HASH] [--min-created-at MS]
   faraday demo
   faraday security policy-template --server NAME [--json]
   faraday security audit [--root PATH] [--json]
@@ -96,7 +106,7 @@ function argsOf(args) {
     if (!t.startsWith('--')) {out._.push(t);continue;}
     const key=t.slice(2);
     if (['include-global','json','debug-stderr','dry-run','fail-on-breaking','send-metadata','fail-on-gap','fail-on-expansion','fail-on-divergence','send-intent','allow-call','apply'].includes(key)) {out[key]=true;continue;}
-    if (!['root','db','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms','file','protocol','timeout-ms','call-tool','max-pages','before'].includes(key)) throw new Error('Unknown option');
+    if (!['root','db','journal','format','config','server','port','out','base','current','model','policy','seed','limit','receipt','public-key','request','approver','private-key','bundle','keys','quorum','trace','iterations','stale-ms','file','protocol','timeout-ms','call-tool','max-pages','before','confirm','backup-file','expected-sha256','min-created-at','url','head','operator','reason','observations','checkpoint','witness','digest','reviewer'].includes(key)) throw new Error('Unknown option');
     if (i+1>=args.length || args[i+1].startsWith('--')) throw new Error('Missing option value');
     out[key]=args[++i];
   }
@@ -141,7 +151,13 @@ async function main() {
     }else if(action==='diff'){
       if(!flags.base||!flags.current)throw Error('timemachine diff needs --base and --current');
       report=diffSynthetic(readSyntheticTrace(resolve(flags.base)),readSyntheticTrace(resolve(flags.current)));
-    }else throw Error('Use timemachine capture|replay|diff');
+    }else if(action==='checkpoint'){
+      if(!flags.trace||!flags['private-key']||!flags.witness||!flags.out)throw Error('timemachine checkpoint needs --trace, --private-key, --witness and --out');
+      report=signSyntheticCheckpoint({trace:readSyntheticTrace(resolve(flags.trace)),privatePem:readKeyFile(resolve(flags['private-key']),{privateKey:true}),witnessId:flags.witness});
+    }else if(action==='verify-checkpoint'){
+      if(!flags.trace||!flags.checkpoint||!flags['public-key']||!flags.witness)throw Error('timemachine verify-checkpoint needs --trace, --checkpoint, --public-key and --witness');
+      report=verifySyntheticCheckpoint({trace:readSyntheticTrace(resolve(flags.trace)),checkpoint:readSyntheticCheckpoint(resolve(flags.checkpoint)),publicPem:readKeyFile(resolve(flags['public-key'])),expectedWitnessId:flags.witness,expectedDigest:flags['expected-sha256']});
+    }else throw Error('Use timemachine capture|replay|diff|checkpoint|verify-checkpoint');
     if(flags.out)writeFileSync(resolve(flags.out),JSON.stringify(report,null,2)+'\n',{mode:0o600,flag:'wx'});
     process.stdout.write(JSON.stringify(action==='capture'?{format:report.format,steps:report.steps.length,rootHash:report.rootHash,output:flags.out||null}:report,null,2)+'\n');
   } else if(cmd==='benchmark'){
@@ -149,19 +165,48 @@ async function main() {
     if(flags.out)writeFileSync(resolve(flags.out),JSON.stringify(report,null,2)+'\n',{mode:0o600,flag:'wx'});
     process.stdout.write(JSON.stringify(report,null,2)+'\n');
   } else if(cmd==='recovery'){
-    if(flags._[0]!=='inspect'||!flags.db)throw Error('recovery inspect requires --db JOURNAL');
-    process.stdout.write(JSON.stringify(inspectRecovery({path:resolve(flags.db),staleAfterMs:flags['stale-ms']===undefined?60000:Number(flags['stale-ms'])}),null,2)+'\n');
+    const action=flags._[0];let result;
+    if(action==='inspect'&&flags.db)result=inspectRecovery({path:resolve(flags.db),staleAfterMs:flags['stale-ms']===undefined?60000:Number(flags['stale-ms'])});
+    else if(action==='backup'&&flags.db&&flags.out&&flags['private-key'])result=await createSignedJournalBackup({journalPath:resolve(flags.db),backupPath:resolve(flags.out),privatePem:readKeyFile(resolve(flags['private-key']),{privateKey:true})});
+    else if((action==='verify'||action==='restore')&&flags['backup-file']&&flags['public-key']&&(action!=='restore'||flags.out)){
+      if(flags['min-created-at']!==undefined&&!/^\d+$/.test(flags['min-created-at']))throw Error('Invalid minimum backup time');
+      const options={backupPath:resolve(flags['backup-file']),publicPem:readKeyFile(resolve(flags['public-key'])),expectedSha256:flags['expected-sha256'],minCreatedAt:flags['min-created-at']===undefined?undefined:Number(flags['min-created-at'])};
+      result=action==='verify'?verifySignedJournalBackup(options):restoreVerifiedJournalBackup({...options,restorePath:resolve(flags.out)});
+    }else throw Error('Invalid recovery command or missing options');
+    process.stdout.write(JSON.stringify(result,null,2)+'\n');
   } else if(cmd==='sentinel'){
     if(!flags.db)throw Error('sentinel requires --db PATH of the running gateway');
     const sentinel=new LocalSentinel(resolve(flags.db));
     try{
       if(flags._[0]==='stop')sentinel.stop(true);
       else if(flags._[0]==='resume')sentinel.stop(false);
-      else if(flags._[0]!=='status'&&flags._[0]!=='verify')throw Error('Use sentinel status|verify|stop|resume');
-      const report=sentinel.status();
+      else if(flags._[0]==='recover')sentinel.recover({expectedHead:flags.head,operator:flags.operator,reason:flags.reason});
+      else if(flags._[0]!=='status'&&flags._[0]!=='verify'&&flags._[0]!=='alerts'&&flags._[0]!=='deliver')throw Error('Use sentinel status|verify|stop|resume|alerts|deliver|recover');
+      const report=flags._[0]==='alerts'?{alerts:sentinel.pendingAlerts()}:flags._[0]==='deliver'?await sentinel.deliverAlerts({url:flags.url}):sentinel.status();
       process.stdout.write(JSON.stringify(report,null,2)+'\n');
-      if(!report.chain.verified)process.exitCode=2;
+      if(report.chain&&!report.chain.verified||report.failed)process.exitCode=2;
     }finally{sentinel.close();}
+  } else if(cmd==='memory'){
+    const action=flags._[0];
+    if(action==='sign'){
+      if(!flags.file||!flags['private-key']||!flags.out)throw Error('memory sign requires --file, --private-key and --out');
+      const packet=signMemoryDocument({document:readMemoryJson(resolve(flags.file)),privatePem:readKeyFile(resolve(flags['private-key']),{privateKey:true})});
+      writeFileSync(resolve(flags.out),JSON.stringify(packet,null,2)+'\n',{mode:0o600,flag:'wx'});
+      process.stdout.write('Signed memory document. Signature does not establish safety.\n');
+    }else{
+      if(!flags.db||!flags.keys)throw Error('memory requires --db and --keys');
+      const guard=new LocalMemoryGuard(resolve(flags.db),{trustedSources:readMemoryJson(resolve(flags.keys))});
+      try{
+        let report;
+        if(action==='ingest'&&flags.file)report=guard.ingest(readMemoryJson(resolve(flags.file)));
+        else if(action==='list')report={quarantined:guard.quarantined()};
+        else if(action==='inspect'&&flags.digest)report=guard.inspect(flags.digest);
+        else if(action==='approve'&&flags.digest&&flags.reviewer)report=guard.approve(flags.digest,{reviewer:flags.reviewer});
+        else if(action==='approved')report={documents:guard.approved()};
+        else throw Error('Use memory ingest|list|inspect|approve|approved with required options');
+        process.stdout.write(JSON.stringify(report,null,2)+'\n');
+      }finally{guard.close();}
+    }
   } else if(cmd==='approval'){
     if(!flags.request)throw Error('Approval needs --request');
     const request=JSON.parse(readFileSync(resolve(flags.request),'utf8'));
@@ -238,13 +283,16 @@ async function main() {
     }else process.stdout.write(JSON.stringify(compatibilityReport({root:flags.root,includeGlobal:!!flags['include-global']}),null,2)+'\n');
   } else if(cmd==='trust') {
     if(flags._[0]!=='diff'||!flags.base||!flags.current)throw Error('Use trust diff --base --current');
-    const report=diffAuthority(readPolicy(flags.base),readPolicy(flags.current));
+    if(flags['fail-on-divergence']&&!flags.observations)throw Error('trust diff --fail-on-divergence requires --observations');
+    const before=readPolicy(flags.base),after=readPolicy(flags.current),report=diffAuthority(before,after);
+    if(flags.observations)report.observedDecisionSimulation=simulateObservedDecisions(before,after,readObservedDecisions(resolve(flags.observations)));
     if(flags.db){const store=new GraphStore(fileDB(flags));
       try { const graph=store.snapshot();report.added=report.added.map(e=>({...e,potentialClients:affectedClients(graph,e.server)})); }
       finally{store.close();}
     }
     process.stdout.write(JSON.stringify(report,null,2)+'\n');
     if(flags['fail-on-expansion']&&report.summary.authorityExpanded)process.exitCode=2;
+    if(flags['fail-on-divergence']&&report.observedDecisionSimulation){const summary=report.observedDecisionSimulation.summary;if(summary.baselineMismatches||summary.baselineUnavailable||summary.proposedUnavailable)process.exitCode=2;}
   } else if(cmd==='security') {
     if(flags._[0]==='audit'){
       const report=auditWorkspace(flags.root||process.cwd());
@@ -322,11 +370,17 @@ async function main() {
       `Graph database: ${fileDB(flags)}\n`);
   } else if (cmd==='graph') {
     if(flags._[0]==='prune'&&(!flags.db||!flags.before||!existsSync(resolve(flags.db))))throw Error('graph prune requires an existing --db and --before UTC timestamp');
-    if(flags._[0]&&flags._[0]!=='prune')throw Error('Unknown graph subcommand');
+    if(flags._[0]==='clear'&&(!flags.db||!existsSync(resolve(flags.db))))throw Error('graph clear requires an existing explicit --db');
+    if(flags._[0]==='clear'&&((flags.apply&&flags.confirm!=='DELETE-ALL-GRAPH-DATA')||(!flags.apply&&flags.confirm)))throw Error('graph clear requires --apply --confirm DELETE-ALL-GRAPH-DATA to delete');
+    if(flags._[0]&&!['prune','clear'].includes(flags._[0]))throw Error('Unknown graph subcommand');
     const store=new GraphStore(fileDB(flags));
     try {
       if(flags._[0]==='prune'){
         process.stdout.write(JSON.stringify(store.pruneEventsBefore(flags.before,{apply:!!flags.apply}),null,2)+'\n');
+        return;
+      }
+      if(flags._[0]==='clear'){
+        process.stdout.write(JSON.stringify(store.clearGraph({apply:!!flags.apply}),null,2)+'\n');
         return;
       }
       const data=store.snapshot();
@@ -353,7 +407,7 @@ async function main() {
     process.stdout.write(`Uninstalled FARADAY proxy for ${out.server}; original entry restored.\n`);
   } else if (cmd==='serve') {
     if (flags.port!=null && (!/^\d+$/.test(flags.port) || +flags.port>65535)) throw Error('Invalid port');
-    await serveGraph({database:fileDB(flags),port:flags.port==null?0:+flags.port,
+    await serveGraph({database:fileDB(flags),journalPath:flags.journal??null,port:flags.port==null?0:+flags.port,
       onReady:(url)=>process.stdout.write(`FARADAY Graph: ${url}\n`)});
   } else if (cmd==='demo') {
     const stats=await runDemo(fileDB(flags),appPath);

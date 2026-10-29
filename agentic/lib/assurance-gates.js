@@ -2,6 +2,8 @@
 import {createHash,createPublicKey,verify} from 'node:crypto';
 export const ASSURANCE_FORMAT='faraday-assurance/v1';
 export const EVIDENCE_KINDS=Object.freeze(['unit','integration','adversarial_deployment','independent_validation']);
+export const ENTERPRISE_REFERENCE_CONTROLS=Object.freeze(['idp-sso','workload-identity','tenant-isolation','secrets-lifecycle','tls',
+ 'observability','backup-recovery','ha-sla','deployment-isolation','adversarial-testing','independent-review','data-governance']);
 const sha=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function assert(ok,msg){if(!ok)throw Error(msg);}
 const object=x=>x&&typeof x==='object'&&!Array.isArray(x);
@@ -12,6 +14,23 @@ export function signableAttestationDigest({issuer,commit,evidenceDigest}){
  assert(commitOk(commit),'invalid commit');
  assert(typeof evidenceDigest==='string'&&/^[a-f0-9]{64}$/.test(evidenceDigest),'invalid evidenceDigest');
  return Buffer.from(['FARADAY-INDEPENDENT-V1',issuer,commit,evidenceDigest,''].join('\n'));
+}
+export function evaluateEnterpriseReference({commit,checks=[]}={}){
+ assert(commitOk(commit),'invalid commit');
+ assert(Array.isArray(checks)&&checks.length<=ENTERPRISE_REFERENCE_CONTROLS.length,'invalid reference checks');
+ const byId=new Map();
+ for(const check of checks){
+  assert(object(check)&&Object.keys(check).every(key=>['id','result','evidenceSha256'].includes(key))&&
+   ENTERPRISE_REFERENCE_CONTROLS.includes(check.id)&&['pass','fail','gap'].includes(check.result),'invalid reference check');
+  assert(!byId.has(check.id),'duplicate reference check');
+  if(check.result==='pass')assert(typeof check.evidenceSha256==='string'&&/^[a-f0-9]{64}$/.test(check.evidenceSha256),'missing evidence digest');
+  else assert(check.evidenceSha256===undefined,'unexpected evidence digest');
+  byId.set(check.id,{id:check.id,result:check.result,...(check.result==='pass'?{evidenceSha256:check.evidenceSha256}:{})});
+ }
+ const results=ENTERPRISE_REFERENCE_CONTROLS.map(id=>byId.get(id)??{id,result:'gap'});
+ return {format:'faraday-enterprise-reference/v1',commit,checks:results,
+  blockers:[...results.filter(check=>check.result!=='pass').map(check=>check.id+':'+check.result),'control-evidence-not-verified'],enterpriseReady:false,
+  limitation:'Caller declarations and digests are not evidence verification, deployment attestation, auditor independence or enterprise readiness.'};
 }
 export function evaluateAssurance(report,{profile='developer',expectedCommit,trustRoots={}}={}){
  assert(['developer','enterprise'].includes(profile),'unknown assurance profile');

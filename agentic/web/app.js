@@ -5,7 +5,27 @@ const NS='http://www.w3.org/2000/svg';
 const SVG=(name,attrs={})=>{const e=document.createElementNS(NS,name);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,String(v));return e;};
 const text=(node,value)=>{node.textContent=value;return node;};
 let lastGraph;
+async function updateRecovery(){
+  const summary=$('recovery-summary'),list=$('recovery-list');
+  try{
+    const response=await fetch('/api/recovery');if(!response.ok)throw Error('Recovery unavailable');
+    const report=await response.json();list.replaceChildren();
+    if(!report.configured){summary.textContent='No journal configured';return;}
+    const counts=report.summary;
+    summary.textContent=`${counts.uncertain} uncertain | ${counts.staleReserved} stale | ${counts.freshReserved} pending | ${counts.clockAnomalies} clock anomalies`;
+    if(!report.operations.length){const empty=document.createElement('p');empty.className='event';empty.textContent='No pending or uncertain operations';list.append(empty);}
+    for(const operation of report.operations.slice(0,100)){
+      const row=document.createElement('div');row.className='event';
+      const label=document.createElement('div');label.textContent=operation.id;
+      const detail=document.createElement('small');detail.textContent=operation.operatorAction;label.append(detail);
+      const state=document.createElement('span');state.className='outcome';state.textContent=operation.state;
+      row.append(label,state);list.append(row);
+    }
+    if(report.operations.length>100){const notice=document.createElement('p');notice.className='event';notice.textContent=`Showing 100 of ${report.operations.length} operations`;list.append(notice);}
+  }catch{summary.textContent='Recovery inspection unavailable';list.replaceChildren();}
+}
 async function update(){
+  updateRecovery();
   try{
     const [g,e,contracts]=await Promise.all(['/api/graph','/api/events','/api/contracts'].map(path=>fetch(path).then(r=>{if(!r.ok)throw Error('API unavailable');return r.json();})));
     lastGraph=g;

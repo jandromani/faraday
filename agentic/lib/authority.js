@@ -48,8 +48,12 @@ function verifyObject(pub,domain,packet){
   try{ok=verify(null,mac(domain,packet.payload),createPublicKey(pub),unb64(packet.sig));}catch(e){if(e instanceof AuthorityError)throw e;fail('invalid-signature');}
   if(!ok)fail('invalid-signature');return packet.payload;
 }
-function assertFields(obj,keys){if(!obj||typeof obj!=='object'||Array.isArray(obj)||Object.keys(obj).sort().join('|')!==keys.slice().sort().join('|'))fail('invalid-claims');}
-function validTime(iat,exp,now,max){if(!Number.isSafeInteger(iat)||!Number.isSafeInteger(exp)||iat>now+2||exp<=now||exp-iat<1||exp-iat>max)fail('expired-or-invalid-time');}
+function assertFields(obj,keys){
+  if(!obj||typeof obj!=='object'||Array.isArray(obj))fail('invalid-claims');
+  const actual=Object.keys(obj).sort(),expected=keys.slice().sort();
+  if(actual.length!==expected.length||actual.some((key,index)=>key!==expected[index]))fail('invalid-claims');
+}
+function validTime(iat,exp,now,max){if(!Number.isSafeInteger(now)||!Number.isSafeInteger(iat)||!Number.isSafeInteger(exp)||iat>now+2||exp<=now||exp-iat<1||exp-iat>max)fail('expired-or-invalid-time');}
 function validNonce(n){if(typeof n!=='string'||n.length<20||n.length>128||!/^[A-Za-z0-9_-]+$/.test(n))fail('invalid-nonce');}
 const clockNow=()=>Math.floor(Date.now()/1000);
 export function createIntent({agent,tool,resource,action,args,agentPrivatePem,now=clockNow(),ttl=25}){
@@ -71,13 +75,24 @@ function identityProof(proof,registry,purpose,now){
 }
 /** Policies authorize exact tool + action + resource; numeric amounts are optional bounds. */
 export function evaluatePolicy(policy,{agent,tool,resource,action,args}){
-  if(!policy||policy.version!==1||policy.mode!=='enforce'||!Array.isArray(policy.rules))fail('invalid-policy');
+  if(!policy||policy.version!==1||policy.mode!=='enforce'||!Array.isArray(policy.rules)||policy.rules.length>1000)fail('invalid-policy');
   if(!args||typeof args!=='object'||Array.isArray(args))fail('invalid-arguments');
   const encoded=canonical(args);if(encoded.length>8192)fail('arguments-too-large');
   for(const r of policy.rules){
+    if(!r||typeof r!=='object'||Array.isArray(r)||
+       Object.keys(r).some(key=>!['id','agent','tool','resource','action','required','exactKeys','equal','maxAmountCents'].includes(key))||
+       !['id','agent','tool','resource','action'].every(key=>typeof r[key]==='string'&&r[key].length>0&&r[key].length<=512)||
+       !Array.isArray(r.required)||r.required.length>200||r.required.some(key=>typeof key!=='string'||!key)||
+       new Set(r.required).size!==r.required.length||
+       (Object.hasOwn(r,'exactKeys')&&typeof r.exactKeys!=='boolean')||
+       (Object.hasOwn(r,'equal')&&(!r.equal||typeof r.equal!=='object'||Array.isArray(r.equal)))||
+       (Object.hasOwn(r,'maxAmountCents')&&(!Number.isSafeInteger(r.maxAmountCents)||r.maxAmountCents<1)))fail('invalid-policy');
+    if(Object.hasOwn(r,'equal'))canonical(r.equal);
+  }
+  for(const r of policy.rules){
     if(r.agent!==agent||r.tool!==tool||r.resource!==resource||r.action!==action)continue;
-    if(!Array.isArray(r.required)||r.required.some(k=>typeof k!=='string'||!Object.hasOwn(args,k)))continue;
-    if(r.exactKeys===true && Object.keys(args).sort().join('|')!==r.required.slice().sort().join('|'))continue;
+    if(r.required.some(k=>!Object.hasOwn(args,k)))continue;
+    if(r.exactKeys===true && Object.keys(args).length!==r.required.length)continue;
     if(r.equal && Object.entries(r.equal).some(([k,v])=>JSON.stringify(args[k])!==JSON.stringify(v)))continue;
     if(r.maxAmountCents!==undefined && (!Number.isSafeInteger(args.amount_cents)||args.amount_cents<1||args.amount_cents>r.maxAmountCents))continue;
     return {allowed:true,rule:r.id};
@@ -87,16 +102,25 @@ export function evaluatePolicy(policy,{agent,tool,resource,action,args}){
 export class NonceLedger {
   constructor(path){
     mkdirSync(dirname(resolve(path)),{recursive:true,mode:0o700});
-    this.db=new DatabaseSync(path);this.db.exec('PRAGMA busy_timeout=3000; CREATE TABLE IF NOT EXISTS consumed (key TEXT PRIMARY KEY, expiration INTEGER NOT NULL)');
+    this.db=new DatabaseSync(path);this.db.exec('PRAGMA busy_timeout=3000; CREATE TABLE IF NOT EXISTS consumed (key TEXT PRIMARY KEY, expiration INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS revoked (kind TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(kind,value))');
     this.insert=this.db.prepare('INSERT INTO consumed (key,expiration) VALUES (?,?)');
+    this.findRevocation=this.db.prepare('SELECT 1 FROM revoked WHERE kind=? AND value=?');
   }
-  spend(keys,expiration){
+  revoke(kind,value){
+    if(!['agent','issuer','capability'].includes(kind)||typeof value!=='string'||!value||value.length>512)fail('invalid-revocation');
+    try{this.db.prepare('INSERT OR IGNORE INTO revoked(kind,value) VALUES (?,?)').run(kind,value);}
+    catch{fail('revocation-ledger-unavailable');}
+  }
+  spend(keys,expiration,{revocations=[]}={}){
     if(!Array.isArray(keys)||keys.length<1||keys.some(k=>typeof k!=='string'||k.length>300))fail('invalid-ledger-key');
+    if(!Array.isArray(revocations)||revocations.some(item=>!item||!['agent','issuer','capability'].includes(item.kind)||
+       typeof item.value!=='string'||!item.value||item.value.length>512))fail('invalid-revocation');
     try{
       this.db.exec('BEGIN IMMEDIATE');
+      for(const item of revocations)if(this.findRevocation.get(item.kind,item.value))fail('authority-revoked');
       for(const key of keys)this.insert.run(key,expiration);
       this.db.exec('COMMIT');
-    }catch(e){try{this.db.exec('ROLLBACK');}catch{};fail('capability-replayed-or-ledger-unavailable');}
+    }catch(e){try{this.db.exec('ROLLBACK');}catch{};if(e instanceof AuthorityError)throw e;fail('capability-replayed-or-ledger-unavailable');}
   }
   close(){this.db.close();}
 }
@@ -109,7 +133,7 @@ export class AuthorityIssuer{
     if(!Number.isSafeInteger(ttl)||ttl<1||ttl>300)fail('invalid-ttl');
     const now=this.now(),p=identityProof(proof,this.registry,'issue',now);
     const decision=evaluatePolicy(this.policy,p);if(!decision.allowed)fail('policy-denied');
-    this.ledger.spend(['intent:'+p.agent+':'+p.nonce],p.exp);
+    this.ledger.spend(['intent:'+p.agent+':'+p.nonce],p.exp,{revocations:[{kind:'agent',value:p.agent},{kind:'issuer',value:this.kid}]});
     const claims={v:1,kid:this.kid,iss:'faraday-authority-v09',aud:'faraday-gateway-v09',sub:p.agent,agentKey:digest(this.registry[p.agent]),tool:p.tool,resource:p.resource,action:p.action,argsHash:digest(p.args),rule:decision.rule,iat:now,exp:now+ttl,jti:b64(randomBytes(24))};
     return b64(canonical(signObject(this.key,'capability',claims)));
   }
@@ -131,7 +155,8 @@ export class AuthorityGate {
     if(p.agent!==c.sub||p.tool!==c.tool||p.resource!==c.resource||p.action!==c.action||digest(p.args)!==c.argsHash||p.capHash!==digest(capability)||digest(this.registry[p.agent])!==c.agentKey)fail('scope-mismatch');
     const decision=evaluatePolicy(this.policy,p);
     if(!decision.allowed||decision.rule!==c.rule)fail('policy-denied');
-    this.ledger.spend(['cap:'+c.jti,'execute:'+p.agent+':'+p.nonce],c.exp);
+    this.ledger.spend(['cap:'+c.jti,'execute:'+p.agent+':'+p.nonce],c.exp,{revocations:[
+      {kind:'agent',value:p.agent},{kind:'issuer',value:c.kid},{kind:'capability',value:c.jti}]});
     return {agent:p.agent,tool:p.tool,resource:p.resource,action:p.action,args:p.args,rule:decision.rule,jti:c.jti};
   }
 }

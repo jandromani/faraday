@@ -109,7 +109,7 @@ async function* sseData(body) {
       const line = buffer.slice(0,idx).replace(/\r$/,'');
       buffer = buffer.slice(idx+1);
       if (line === '') {
-        if (data.length) yield data.join('\n');
+        if (data.length && data.join('\n')!=='') yield data.join('\n');
         data=[];size=0;
       } else if (line.startsWith('data:')) {
         const next=line.slice(5).replace(/^ /,'');
@@ -120,7 +120,6 @@ async function* sseData(body) {
     }
   }
   if (buffer.trim()) throw Error('Incomplete SSE stream');
-  if (data.length) yield data.join('\n');
 }
 
 /** Relay configured outbound MCP calls into stdin/stdout JSON-RPC streams. */
@@ -162,9 +161,13 @@ export class HttpBridge {
     return this._track(p);
   }
   _track(p) { this.pending.add(p);p.finally(()=>this.pending.delete(p)).catch(()=>{});return p; }
-  _emitRPC(raw,request) {
+  _emitRPC(raw,request,{answered=false,requireResponse=false}={}) {
     if (Buffer.byteLength(raw)>MAX_FRAME) throw Error('HTTP message too large');
     const obj=JSON.parse(raw);validateMessage(obj);
+    const response=typeof obj.method!=='string'&&Object.hasOwn(obj,'id')&&
+      (Object.hasOwn(obj,'result')||Object.hasOwn(obj,'error'));
+    if(typeof request.method==='string'&&Object.hasOwn(request,'id')&&
+       ((response&&(obj.id!==request.id||answered))||(requireResponse&&!response)))throw Error('Mismatched HTTP response');
     if(request.method==='initialize' && obj.id===request.id && !obj.error &&
        typeof obj.result?.protocolVersion==='string' && /^20\d{2}-\d{2}-\d{2}$/.test(obj.result.protocolVersion))
       this.protocolVersion=obj.result.protocolVersion;
@@ -173,9 +176,10 @@ export class HttpBridge {
     }
     this.observer.consume(raw,'server_to_client');
     this.emit(raw+'\n');
+    return obj;
   }
   _error(message) {
-    if (Object.hasOwn(message,'id')) {
+    if (typeof message.method==='string' && Object.hasOwn(message,'id')) {
       const reply=JSON.stringify({jsonrpc:'2.0',id:message.id,error:{code:-32000,message:'FARADAY HTTP bridge upstream unavailable'}});
       this.observer.consume(reply,'server_to_client');
       this.emit(reply+'\n');
@@ -185,6 +189,7 @@ export class HttpBridge {
     if (this.closed) return;
     const abort=new AbortController();
     const timeout=setTimeout(()=>abort.abort(),this.timeoutMs);
+    let answered=false;
     try {
       const headers={...this.server.headers,'content-type':'application/json',
         'accept':'application/json, text/event-stream',...methodHeaders(message,this.toolHeaderDefs)};
@@ -197,16 +202,32 @@ export class HttpBridge {
       if (response.status>=300 && response.status<400){if(response.discard)await response.discard();throw Error('Upstream redirect rejected');}
       const session=response.headers.get('mcp-session-id');
       if (session && /^[\x21-\x7e]{1,256}$/.test(session)) this.sessionId=session;
-      if (response.status===202 && !Object.hasOwn(message,'id')) return;
-      if (!response.ok){if(response.discard)await response.discard();throw Error('Upstream HTTP error');}
+      if (response.status===202 && (!Object.hasOwn(message,'id')||typeof message.method!=='string')) return;
       const contentType=(response.headers.get('content-type')||'').toLowerCase();
+      if (!response.ok){
+        if(Object.hasOwn(message,'id')&&typeof message.method==='string'&&contentType.includes('application/json')){
+          const raw=await response.text();
+          if(Buffer.byteLength(raw)>MAX_FRAME)throw Error('HTTP message too large');
+          const error=JSON.parse(raw);
+          if(isObj(error)&&error.jsonrpc==='2.0'&&isObj(error.error)&&Number.isSafeInteger(error.error.code)&&
+             typeof error.error.message==='string'&&(error.id==null||error.id===message.id)){
+            this._emitRPC(JSON.stringify({...error,id:message.id}),message,{requireResponse:true});return;
+          }
+        }else if(response.discard)await response.discard();
+        throw Error('Upstream HTTP error');
+      }
       if (contentType.includes('text/event-stream')) {
-        for await (const frame of sseData(response.body)) this._emitRPC(frame,message);
+        for await (const frame of sseData(response.body)) {
+          const item=this._emitRPC(frame,message,{answered});
+          if(Object.hasOwn(message,'id')&&item.id===message.id&&typeof item.method!=='string'&&
+             (Object.hasOwn(item,'result')||Object.hasOwn(item,'error')))answered=true;
+        }
+        if(Object.hasOwn(message,'id')&&!answered)throw Error('SSE stream ended without a response');
       } else if (contentType.includes('application/json')) {
         const raw=await response.text();
-        this._emitRPC(raw,message);
+        this._emitRPC(raw,message,{requireResponse:true});
       } else throw Error('Unsupported upstream response type');
-    } catch { this._error(message); }
+    } catch { if(!answered)this._error(message); }
     finally { clearTimeout(timeout); }
   }
   async close() {

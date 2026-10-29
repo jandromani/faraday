@@ -21,4 +21,36 @@ The callback receives fingerprints of claimed identity and resource before Autho
 
 Existing local interfaces include signed capability and proof objects, policy inputs, journal records and signed receipts. They are implementation-specific preview contracts, not a finalized cross-service wire protocol. Any future service split needs an explicit versioned protocol, authentication, failure semantics and independent integration tests before moving the trust boundary.
 
+## Ownership and dependencies
+
+The following are proposed engineering ownership roles, not claims that separate teams or runtime isolation exist. The integrator of the pilot gateway owns orchestration across them. Each owner reviews changes to its public entrypoint and contract tests; the security owner reviews any trust-boundary change.
+
+| Owner | Owns | Existing dependency / forbidden assumption |
+| --- | --- | --- |
+| Connect maintainer | Discovery, proxy installation, adapter record validation and ingestion | Uses shared Graph storage and legacy modules; discovery and metadata are not authority decisions. |
+| Authority maintainer | Policy, proof, capability and approvals verification | Provides authenticated decisions to the gateway; public exports are not an independent authorization service. |
+| Evidence maintainer | Receipts, backend attestation verification, journal, synthetic replay and assurance | Receipt encoding uses Authority canonicalization; no receipt by itself authorizes an operation or proves a real-world effect. |
+| Lab maintainer | Synthetic actors, scenarios and local evaluation | Exercises shared policy, contracts and replay implementations; results cannot certify production. |
+| Pilot integration maintainer | Gateway orchestration, backend call and reconciliation | Connects legacy modules in one process; responsible for integration tests, error mapping and avoiding blind retries. |
+
+## Current versioned data contracts
+
+These are observed preview formats and validators, not independent wire-protocol guarantees. The API label `1.0.0-preview` is distinct from the npm package version and from each data-format version. Changes must preserve old readers or introduce an explicit migration; never reinterpret an existing version silently.
+
+| Producer → consumer | Version and validation | Failure / compatibility boundary |
+| --- | --- | --- |
+| Python adapters → Connect ingestion | Metadata record `version: 1`; exact fields, known framework/kind/status, pseudonymous IDs and bounded elapsed time. | Unknown versions or raw extra fields are rejected; [adapter tests](../tests/adapter-ingest.test.js) use simulated SDKs. |
+| Operator → Authority tool policy | `version: 1`, enforce mode, explicit per-server tool allowlist and argument-size bound. | Invalid policy is rejected; it covers mediated `tools/call`, not all methods or direct access. |
+| Agent/issuer → Authority | Intent and execution proofs use `ver: 1`; capability claims use `v: 1`, signatures and exact-scope checks. | Invalid, expired, changed or replayed inputs fail closed; lifecycle and revocation remain local preview behavior. |
+| Backend → Evidence | Backend attestation `version: 1`, exact claims, signed operation ID and request hash. | Invalid signature, different operation or digest is rejected; it attests a synthetic backend observation only. |
+| Gateway → Evidence consumer | Receipt `version: 1`, exact claim keys and Ed25519 signature; signed backend attestation required to verify a simulated success when a backend key is supplied. | Unknown version or claim keys are rejected; uncertain outcomes require reconciliation. These checks do not prove external effects. |
+| Evidence → Evidence consumer | Synthetic TimeMachine trace `version: 1`, schema, hash chain and replay consistency. | Unknown version or inconsistent trace is rejected; hashes do not authenticate provenance and replay has no real side effects. |
+| Connect graph → contract diff | Contract snapshot `version: 1` with normalized schema shapes and bounded tools. | Unsupported snapshot version is rejected; unmodeled schema constraints require review. |
+
+Cross-boundary tests in [architecture tests](../tests/architecture.test.js) resolve the four package exports and exercise local synthetic decisions, replay, and Authority-to-Evidence receipt verification. [Pilot tests](../tests/pilot.test.js) exercise actual loopback gateway requests and reject signed incompatible receipt schemas. Neither test runs independently deployed components or proves compatibility with future versions. Package-only import checks do not enforce the dependencies of transitive legacy `lib/*` modules.
+
+## Migration gates
+
+Before moving any implementation into an independently deployed component: (1) assign an owner and inventory its direct and transitive dependencies; (2) freeze versioned request/response schemas and test unknown versions, optional/required fields and old-reader/new-writer combinations; (3) remove private-key and credential access outside the owning process; (4) define authentication, transport, timeout, retry and uncertain-result semantics; (5) run cross-version integration and negative tests against independently built artifacts. A failed or skipped gate blocks claiming operational independence. No deployment isolation, compatibility matrix or ownership staffing has yet been established.
+
 **Release gate:** no regressions to v0.99.3 CLI and 4 entrypoint imports pass.

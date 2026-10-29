@@ -35,6 +35,9 @@ jobs:
         run: |
           npm run timemachine:smoke
           npm run benchmark:smoke
+      - name: Measure deterministic security mutation coverage
+        working-directory: agentic
+        run: node --experimental-test-coverage --test-coverage-include=lib/authority.js --test-coverage-include=lib/approvals.js --test tests/fuzz.test.js
       - name: Generate offline SPDX bill of materials
         working-directory: agentic
         run: |

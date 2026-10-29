@@ -6,7 +6,7 @@ import {mkdtempSync,rmSync,writeFileSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {DUMMY_AGENTS,DISTRIBUTION,generateScenarios,runLab} from '../lib/lab.js';
-import {diffAuthority,affectedClients} from '../lib/trust-diff.js';
+import {diffAuthority,affectedClients,simulateObservedDecisions} from '../lib/trust-diff.js';
 import {compatibilityReport} from '../lib/compatibility.js';
 import {GraphStore} from '../lib/store.js';
 import {safeLabel} from '../lib/discover.js';
@@ -70,10 +70,44 @@ test('TrustDiff detects allowlist and argument-limit expansion',()=>{
  assert.equal(r.summary.authorityExpanded,true);
  assert.equal(r.maxArgumentBytes.expanded,true);
 });
+test('E20 observed-decision preflight uses ToolPolicy without exposing request contents',()=>{
+ const previous={version:1,mode:'enforce',allowedTools:{sandbox:['read_document']},maxArgumentBytes:32};
+ const proposed={...previous,allowedTools:{sandbox:['read_document','secret-tool-name']},maxArgumentBytes:100};
+ const message={jsonrpc:'2.0',method:'tools/call',params:{name:'secret-tool-name',arguments:{value:'sensitive-value'}}};
+ const report=simulateObservedDecisions(previous,proposed,[{server:'sandbox',message,observedAllowed:false},{server:'sandbox',message,observedAllowed:true}]);
+ assert.deepEqual(report.results.map(result=>[result.baseline,result.proposed,result.baselineMatches]),[['deny','allow',true],['deny','allow',false]]);
+ assert.equal(report.summary.baselineMismatches,1);assert.equal(report.summary.changed,2);
+ assert.equal(JSON.stringify(report).includes('secret-tool-name'),false);assert.equal(JSON.stringify(report).includes('sensitive-value'),false);
+ assert.throws(()=>simulateObservedDecisions(previous,proposed,[{server:'sandbox',message}]),/Invalid observed decision/);
+ assert.equal(simulateObservedDecisions(previous,{...proposed,allowedTools:{}},[{server:'sandbox',message,observedAllowed:false}]).results[0].proposed,'configuration-error');
+});
+test('E20 trust CLI compares explicit local observations without executing a tool',t=>{
+ const path=dir(t),base=join(path,'before.json'),current=join(path,'after.json'),observations=join(path,'observations.json');
+ writeFileSync(base,JSON.stringify(before));writeFileSync(current,JSON.stringify(after));
+ writeFileSync(observations,JSON.stringify([{server:'sandbox',message:{jsonrpc:'2.0',method:'tools/call',params:{name:'delete_everything',arguments:{secret:'private-value'}}},observedAllowed:false}]));
+ const result=cli(['trust','diff','--base',base,'--current',current,'--observations',observations]);assert.equal(result.status,0,result.stderr);
+ const report=JSON.parse(result.stdout);assert.equal(report.observedDecisionSimulation.results[0].proposed,'allow');
+ assert.equal(report.observedDecisionSimulation.summary.baselineMismatches,0);assert.equal(result.stdout.includes('private-value'),false);
+ writeFileSync(observations,JSON.stringify([{server:'sandbox',message:{jsonrpc:'2.0',method:'tools/call',params:{name:'delete_everything',arguments:{}}},observedAllowed:true}]));
+ assert.equal(cli(['trust','diff','--base',base,'--current',current,'--observations',observations,'--fail-on-divergence']).status,2);
+ assert.notEqual(cli(['trust','diff','--base',base,'--current',current,'--fail-on-divergence']).status,0);
+});
 test('TrustDiff detects contraction without false expansion',()=>{
  const r=diffAuthority(after,before);
  assert.deepEqual(r.removed,[{server:'sandbox',tool:'delete_everything'}]);
  assert.equal(r.summary.authorityExpanded,false);
+});
+test('TrustDiff detects method expansion and removing method restrictions',()=>{
+ const strict={...before,allowedMethods:['initialize','tools/call']};
+ const expanded={...strict,allowedMethods:['initialize','tools/call','resources/read']};
+ assert.equal(diffAuthority(before,strict).summary.authorityExpanded,false);
+ assert.equal(diffAuthority(strict,before).summary.authorityExpanded,true);
+ assert.equal(diffAuthority(strict,before).methods.unrestrictedMethods,true);
+ assert.deepEqual(diffAuthority(strict,expanded).methods.added,['resources/read']);
+ assert.equal(diffAuthority(strict,expanded).summary.authorityExpanded,true);
+ assert.equal(diffAuthority(expanded,strict).summary.authorityExpanded,false);
+ assert.throws(()=>diffAuthority(strict,{...strict,allowedMethods:null}),/method allowlist/);
+ assert.throws(()=>diffAuthority(strict,{...strict,unknown:'new-authority'}),/Invalid FARADAY policy/);
 });
 test('TrustDiff detects expansion even when redacted labels collide',()=>{
  const sensitive='secret-tool-name',alias=safeLabel(sensitive);

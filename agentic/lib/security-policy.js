@@ -4,17 +4,20 @@ const obj=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 export class ToolPolicy {
   constructor(doc,server){
     if(!obj(doc)||doc.version!==1||doc.mode!=='enforce'||!obj(doc.allowedTools)||
-       Object.keys(doc).some(k=>!['version','mode','allowedTools','maxArgumentBytes'].includes(k)))
+      Object.keys(doc).some(k=>!['version','mode','allowedTools','allowedMethods','maxArgumentBytes'].includes(k)))
       throw Error('Unsupported FARADAY tool policy (expected enforce v1)');
     const list=doc.allowedTools[server];
     if(!Array.isArray(list)||list.length>1000||list.some(x=>typeof x!=='string'||!x||x.length>200))
       throw Error('Explicit allowlist required for selected server');
     const size=doc.maxArgumentBytes??8192;
     if(!Number.isSafeInteger(size)||size<32||size>131072)throw Error('Invalid argument limit');
-    this.allowed=new Set(list);this.maxArgumentBytes=size;
+     if(Object.hasOwn(doc,'allowedMethods')&&(!Array.isArray(doc.allowedMethods)||doc.allowedMethods.length>1000||
+       doc.allowedMethods.some(method=>typeof method!=='string'||!method||method.length>200)))throw Error('Invalid method allowlist');
+     this.allowed=new Set(list);this.allowedMethods=Object.hasOwn(doc,'allowedMethods')?new Set(doc.allowedMethods):null;this.maxArgumentBytes=size;
   }
   decision(message){
     if(!obj(message)||message.jsonrpc!=='2.0')return {allowed:false};
+    if(this.allowedMethods&&!this.allowedMethods.has(message.method))return {allowed:false};
     if(message.method!=='tools/call')return {allowed:true};
     const name=message.params?.name;
     if(typeof name!=='string'||!this.allowed.has(name))return {allowed:false};
@@ -32,8 +35,8 @@ export function loadToolPolicy(path,server){
   return new ToolPolicy(JSON.parse(readFileSync(file,'utf8')),server);
 }
 export function denialReply(message){
-  if(!obj(message)||!Object.hasOwn(message,'id'))return null;
+  if(!obj(message)||typeof message.method!=='string'||!message.method||!Object.hasOwn(message,'id'))return null;
   const id=message.id;
   if(!(id===null||typeof id==='number'||typeof id==='string'))return null;
-  return JSON.stringify({jsonrpc:'2.0',id,error:{code:-32003,message:'FARADAY policy denied tool execution'}})+'\n';
+  return JSON.stringify({jsonrpc:'2.0',id,error:{code:-32003,message:'FARADAY policy denied request'}})+'\n';
 }

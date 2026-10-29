@@ -38,6 +38,11 @@ test('live probe limits pages and rejects bad transport settings',async()=>{
  await assert.rejects(()=>probeStdio({configFile:c.conf,server:'sample',timeoutMs:5}),/timeoutMs/);
  }finally{c.clean()}
 });
+for(const [mode,expected] of [['loop',/repeated cursor/],['malformed',/tools\/list failed/],['exit',/exited/],['wrong-id',/timed out/]]){
+ test(`E25 stdio probe rejects ${mode} server failure`,async()=>{
+  const c=envConfig(mode);try{await assert.rejects(probeStdio({configFile:c.conf,server:'sample',timeoutMs:1500}),expected);}finally{c.clean();}
+ });
+}
 test('CLI writes private report with no tool outputs',()=>{
  const c=envConfig('modern');try{const outfile=join(c.root,'report.json');
  const r=spawnSync(process.execPath,[cli,'compat','probe','--config',c.conf,'--server','sample','--out',outfile],{encoding:'utf8',timeout:7000});

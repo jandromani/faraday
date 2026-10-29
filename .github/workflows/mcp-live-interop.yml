@@ -12,6 +12,26 @@ on:
 permissions:
   contents: read
 jobs:
+  official-client:
+    name: 'Official MCP client through proxy / ${{ matrix.os }}'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned official client and server
+        run: npm install --prefix "${{ runner.temp }}/faraday-mcp-client" --ignore-scripts --no-audit --no-fund @modelcontextprotocol/sdk@1.32.2 @modelcontextprotocol/server-filesystem@2.0.1
+      - name: Exercise read-only client through FARADAY proxy
+        working-directory: agentic
+        env:
+          FARADAY_MCP_FIXTURES: ${{ runner.temp }}/faraday-mcp-client
+        run: node scripts/real-mcp-client-smoke.mjs
   mcp-live:
     name: Official filesystem + everything / modern + legacy
     runs-on: ubuntu-latest

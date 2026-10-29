@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { serveGraph } from '../lib/server.js';
 import http from 'node:http';
+import {ExecutionJournal} from '../lib/pilot-receipts.js';
 
 test('viewer is localhost, token gated, and returns metadata-only graph',async t=>{
  const dir=mkdtempSync(join(tmpdir(),'faraday-view-'));
@@ -24,9 +25,26 @@ test('viewer is localhost, token gated, and returns metadata-only graph',async t
  assert.equal(contracts.status,200);assert.deepEqual((await contracts.json()).tools,[]);
  const graph=await fetch(origin+'/api/graph',{headers:{cookie}});
  assert.deepEqual((await graph.json()).stats,{nodes:0,edges:0,events:0,toolCalls:0,contracts:0});
+ assert.deepEqual(await (await fetch(origin+'/api/recovery',{headers:{cookie}})).json(),{configured:false});
  const badHostStatus=await new Promise((resolve,reject)=>{
   const req=http.get({hostname:'127.0.0.1',port,path:'/api/graph',headers:{Cookie:cookie,Host:'attacker.example'}},r=>{r.resume();resolve(r.statusCode)});req.on('error',reject);
  });
  assert.equal(badHostStatus,403);
  assert.equal((await fetch(origin+'/api/graph',{method:'POST',headers:{cookie}})).status,405);
+});
+test('E29 viewer exposes only explicitly configured read-only recovery state',async t=>{
+ const dir=mkdtempSync(join(tmpdir(),'faraday-view-recovery-'));
+ const journalPath=join(dir,'journal.sqlite'),journal=new ExecutionJournal(journalPath);
+ journal.reserve('local-reservation','a'.repeat(64));
+ const {server,port,token}=await serveGraph({database:join(dir,'graph.sqlite'),journalPath});
+ t.after(async()=>{await new Promise(resolve=>server.close(resolve));journal.close();rmSync(dir,{recursive:true,force:true});});
+ const origin=`http://127.0.0.1:${port}`;
+ assert.equal((await fetch(origin+'/api/recovery')).status,403);
+ const cookie=(await fetch(origin+'/?key='+token,{redirect:'manual'})).headers.get('set-cookie').split(';')[0];
+ const response=await fetch(origin+'/api/recovery?path=other',{headers:{cookie}}),report=await response.json();
+ assert.equal(response.status,200);assert.equal(report.configured,true);assert.equal(report.mode,'read-only');
+ assert.equal(report.summary.total,1);assert.equal(report.operations[0].id,'local-reservation');
+ assert.ok(!JSON.stringify(report).includes(dir));
+ assert.equal((await fetch(origin+'/api/recovery',{method:'POST',headers:{cookie}})).status,405);
+ assert.equal(journal.get('local-reservation').state,'reserved');
 });
