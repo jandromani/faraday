@@ -1,6 +1,6 @@
 {
   "name": "@faraday/lab",
-  "version": "0.99.6",
+  "version": "0.99.7",
   "type": "module",
   "private": true,
   "description": "FARADAY Lab API migration boundary (workspace internal, not independently deployable)",
