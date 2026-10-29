@@ -1,8 +1,8 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.99.5",
+  "version": "0.99.6",
   "private": true,
-  "description": "FARADAY Secure Developer Preview: local OAuth revocations, strict backend credential rotation and independent-witness receipt checkpoints",
+  "description": "FARADAY reference non-bypass with rogue agent and Vault KV2 read-only adapter",
   "type": "module",
   "bin": {
     "faraday": "./bin/faraday.js",
@@ -14,7 +14,7 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "smoke": "node bin/faraday.js demo",
-    "test:all": "npm test && npm run test:python && npm run smoke && npm run lab && npm run workflow && npm run workflow:eval && npm run authority && npm run authority:eval && npm run pilot && npm run pilot:eval && npm pack --dry-run && npm run release:audit && npm run timemachine:smoke && npm run benchmark:smoke && npm run oauth:eval && npm run trust:test",
+    "test:all": "npm test && npm run test:python && npm run smoke && npm run lab && npm run workflow && npm run workflow:eval && npm run authority && npm run authority:eval && npm run pilot && npm run pilot:eval && npm pack --dry-run && npm run release:audit && npm run timemachine:smoke && npm run benchmark:smoke && npm run oauth:eval && npm run trust:test && npm run boundary:test",
     "lab": "node bin/faraday.js lab run",
     "lab:gate": "node bin/faraday.js lab run --fail-on-gap",
     "compat": "node bin/faraday.js compat --root .",
@@ -39,7 +39,8 @@
     "oauth:test": "node --test tests/mcp-oauth-resource.test.js",
     "architecture:test": "node --test tests/architecture.test.js tests/assurance-gates.test.js tests/otel-mcp.test.js tests/gateway-policy-port.test.js",
     "assurance:ci": "node scripts/assurance-ci.mjs",
-    "trust:test": "node --test tests/oauth-revocations.test.js tests/secret-file-provider.test.js tests/evidence-checkpoint.test.js tests/mcp-oauth-resource.test.js"
+    "trust:test": "node --test tests/oauth-revocations.test.js tests/secret-file-provider.test.js tests/evidence-checkpoint.test.js tests/mcp-oauth-resource.test.js",
+    "boundary:test": "node --test tests/vault-kv2-secret-provider.test.js tests/deployment-boundary.test.js"
   },
   "license": "Apache-2.0",
   "exports": {
@@ -80,7 +81,9 @@
     "./gateway-policy-port": "./lib/gateway-policy-port.js",
     "./oauth-revocations": "./lib/oauth-revocations.js",
     "./secret-file-provider": "./lib/secret-file-provider.js",
-    "./evidence-checkpoint": "./lib/evidence-checkpoint.js"
+    "./evidence-checkpoint": "./lib/evidence-checkpoint.js",
+    "./vault-kv2-secret-provider": "./lib/vault-kv2-secret-provider.js",
+    "./deployment-boundary": "./lib/deployment-boundary.js"
   },
   "files": [
     "bin",

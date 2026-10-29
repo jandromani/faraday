@@ -49,6 +49,23 @@ services:
     depends_on: [gateway]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+  rogue-agent:
+    image: node:22.16-alpine
+    working_dir: /app
+    user: "${FARADAY_HOST_UID:?}:${FARADAY_HOST_GID:?}"
+    command: ["node", "scripts/docker-rogue-agent.mjs"]
+    volumes:
+      - ${FARADAY_APP_DIR:?}:/app:ro
+    networks: [agent_zone]
+    depends_on: [gateway]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    read_only: true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
 networks:
   agent_zone:
     driver: bridge
