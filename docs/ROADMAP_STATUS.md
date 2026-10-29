@@ -1,5 +1,14 @@
 # FARADAY — Estado verificado del roadmap (32 épicas)
 
+## Actualización verificada v0.99.1 — 15 gates de Developer Preview (29/10/2026)
+
+**PR #7 fusionada en master:** https://github.com/jandromani/faraday/pull/7 . Contratos de aceptación versionados en `agentic/docs/EPIC_CLOSURE_SCOPE_V1.json`; test técnico en `agentic/tests/closure-acceptance.test.js`; informe reproducible en `agentic/scripts/epic-closure-report.mjs`. CI multiplataforma **5/5 aprobada** (Ubuntu Node 22/24, macOS Node 24, Windows Node 24, regresión Linux): https://github.com/jandromani/faraday/actions/runs/40841462167 . CI Graph y Security también aprobadas sobre el commit de PR.
+
+**15/15 comprobaciones técnicas de alcance limitado aprobadas:** E01, E05, E06, E07, E08, E10, E14, E17, E20, E21, E23, E25, E26, E27, E28. Ocho eran candidatos a cierre de componente existente y siete requerían validación adicional. **Esto no cierra al 100% las 15 épicas originales**: sigue pendiente la infraestructura empresarial, pruebas externas y certificaciones. `enterpriseClosed: 0` por diseño. El corpus sintético anterior mantiene **350 GAP** explícitos.
+
+**Hallazgos corregidos durante CI:** mapa de pruebas que no coincidía con archivos publicados; conexiones SQLite sin cerrar antes de limpiar directorios en Windows; invocación de npm en Windows; contención de rutas en auditoría del paquete basada erróneamente en separadores POSIX. Paquete `private: true`: sin publicación a npm público. Ver [definición de cierre](../agentic/docs/EPIC_CLOSURE_V0991.md).
+
+
 **Corte:** 2026-10-29 · **Actualización v0.98:** adaptadores Python LangGraph/CrewAI/OpenAI Agents con pruebas de SDK reales en CI; PR #5. Alcance: integración opt-in, no enforcement obligatorio ni certificación de producción.
 
 > Este documento es una auditoría de estado, **no** una certificación de seguridad, una afirmación de producción ni un porcentaje de preparación para empresas. Distingue código publicado (G), pruebas locales (L) y pendientes. «Parcial» significa que hay código o evidencia que cubren solo una parte de la épica original; **no significa épica cerrada**.
