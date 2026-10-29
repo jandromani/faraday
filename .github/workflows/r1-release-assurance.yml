@@ -10,7 +10,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: faraday-r1-release-${{ github.ref }
+  group: faraday-r1-release-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   regression-and-boundary:
@@ -38,9 +38,9 @@ jobs:
         working-directory: agentic
         run: npm run closure:test
   official-client:
-    name: R1 official MCP client / ${{ matrix.os }
+    name: R1 official MCP client / ${{ matrix.os }}
     if: github.ref == 'refs/heads/master'
-    runs-on: ${{ matrix.os }
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -56,12 +56,12 @@ jobs:
       - name: Install pinned official MCP client and filesystem server
         shell: bash
         run: |
-          npm install --prefix "${{ runner.temp }/faraday-r1-mcp" --ignore-scripts --no-audit --no-fund \
+          npm install --prefix "${{ runner.temp }}/faraday-r1-mcp" --ignore-scripts --no-audit --no-fund \
             @modelcontextprotocol/sdk@1.32.2 @modelcontextprotocol/server-filesystem@2.0.1
       - name: Real read-only stdio client -> FARADAY proxy -> filesystem
         working-directory: agentic
         env:
-          FARADAY_MCP_FIXTURES: ${{ runner.temp }/faraday-r1-mcp
+          FARADAY_MCP_FIXTURES: ${{ runner.temp }}/faraday-r1-mcp
         run: node scripts/real-mcp-client-smoke.mjs
       - name: Verify offline package onboarding without weakening Windows ACL policy
         working-directory: agentic
@@ -86,34 +86,34 @@ jobs:
       - name: Build package and SPDX source-file inventory; compare every archived file
         working-directory: agentic
         env:
-          FARADAY_RELEASE_DIR: ${{ runner.temp }/faraday-r1-release
+          FARADAY_RELEASE_DIR: ${{ runner.temp }}/faraday-r1-release
         run: node scripts/release-candidate.mjs build "$FARADAY_RELEASE_DIR" "$GITHUB_SHA"
       - name: Verify exact package and commit before signing
         working-directory: agentic
         env:
-          FARADAY_RELEASE_DIR: ${{ runner.temp }/faraday-r1-release
+          FARADAY_RELEASE_DIR: ${{ runner.temp }}/faraday-r1-release
         run: node scripts/release-candidate.mjs verify "$FARADAY_RELEASE_DIR" "$GITHUB_SHA"
       - name: Attest package provenance with GitHub OIDC / Sigstore
         uses: actions/attest@v4
         with:
-          subject-path: ${{ runner.temp }/faraday-r1-release/faraday-agentic-0.99.7.tgz
+          subject-path: ${{ runner.temp }}/faraday-r1-release/faraday-agentic-0.99.7.tgz
       - name: Verify hosted attestation through GitHub CLI
         env:
-          GH_TOKEN: ${{ github.token }
-          FARADAY_RELEASE_DIR: ${{ runner.temp }/faraday-r1-release
+          GH_TOKEN: ${{ github.token }}
+          FARADAY_RELEASE_DIR: ${{ runner.temp }}/faraday-r1-release
         run: gh attestation verify "$FARADAY_RELEASE_DIR/faraday-agentic-0.99.7.tgz" --repo "$GITHUB_REPOSITORY"
       - name: Upload exact signed-candidate input files
         uses: actions/upload-artifact@v4
         with:
-          name: faraday-r1-attested-candidate-${{ github.sha }
-          path: ${{ runner.temp }/faraday-r1-release/*
+          name: faraday-r1-attested-candidate-${{ github.sha }}
+          path: ${{ runner.temp }}/faraday-r1-release/*
           if-no-files-found: error
           retention-days: 30
       - name: Publish prerelease only after every gate and attestation passes
         if: inputs.publish_prerelease == true
         env:
-          GH_TOKEN: ${{ github.token }
-          FARADAY_RELEASE_DIR: ${{ runner.temp }/faraday-r1-release
+          GH_TOKEN: ${{ github.token }}
+          FARADAY_RELEASE_DIR: ${{ runner.temp }}/faraday-r1-release
         run: |
           gh release create "v0.99.7-rc.${GITHUB_RUN_NUMBER}" "$FARADAY_RELEASE_DIR"/* \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
