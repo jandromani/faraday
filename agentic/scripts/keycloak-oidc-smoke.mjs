@@ -84,7 +84,7 @@ if(process.argv[2]==='prepare'){
   clientScopes:[custom('mcp:tools:read'),custom('mcp:tools:execute'),custom('faraday:delegate')],
   clients:[fmt(allowed),fmt(rogue),{...fmt(human),serviceAccountsEnabled:false,
    directAccessGrantsEnabled:true,defaultClientScopes:['mcp:tools:read','mcp:tools:execute','faraday:delegate']}],
-  users:[{username:human.username,enabled:true,emailVerified:true,
+  users:[{username:human.username,email:'r19-operator@example.invalid',enabled:true,emailVerified:true,
    firstName:'CI',lastName:'Operator',requiredActions:[],
    credentials:[{type:'password',value:human.password,temporary:false}]}]};
  writeFileSync(join(importDir,'faraday-r5-realm.json'),JSON.stringify(realm),{mode:0o644,flag:'wx'});
