@@ -70,9 +70,9 @@ export function installProxy({configFile,server,db,binPath,nodePath,dryRun=false
   // Backup contains original launch command, arguments and possibly credentials.
   // It is never committed or printed; owners should protect their local files.
   writeFileSync(file,JSON.stringify(source,null,2)+'\n',{encoding:'utf8',flag:'wx',mode:0o600});
-  if(process.platform==='win32')protectWindowsAcl(file);
-  else chmodSync(file,0o600);
   try {
+    if(process.platform==='win32')protectWindowsAcl(file);
+    else chmodSync(file,0o600);
     json[key][server]=proxy;
     const mode=statSync(path).mode & 0o777;
     safeFile(path,JSON.stringify(json,null,2)+'\n',mode);
