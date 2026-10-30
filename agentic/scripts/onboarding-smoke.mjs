@@ -11,8 +11,8 @@ const npmScript=join(dirname(process.execPath),'node_modules','npm','bin','npm-c
 const npmCommand=existsSync(npmScript)?process.execPath:(process.platform==='win32'?'cmd.exe':'npm');
 function npmArgs(args){return existsSync(npmScript)?[npmScript,...args]:(process.platform==='win32'?['/d','/c','npm',...args]:args);}
 function run(command,args,{cwd=packageRoot}={}){
- const result=spawnSync(command,args,{cwd,encoding:'utf8',timeout:60000,env:{...process.env,npm_config_audit:'false',npm_config_fund:'false'}});
- if(result.status!==0)throw Error(`Onboarding subprocess failed: ${args[0]}`);
+ const result=spawnSync(command,args,{cwd,encoding:'utf8',timeout:60000,env:{...process.env,npm_config_audit:'false',npm_config_fund:'false',FARADAY_CI_DIAGNOSTICS:'1'}});
+ if(result.status!==0){const category=String(result.stderr||'').match(/\[FARADAY CI\] install failure category: ([a-z-]+)/)?.[1]||'unclassified';throw Error('Onboarding subprocess failed (category: '+category+')');}
  return result.stdout;
 }
 try{
