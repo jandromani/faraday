@@ -5,6 +5,9 @@ on:
       - 'agentic/lib/mcp-oauth-resource.js'
       - 'agentic/tests/keycloak-token-profile.test.js'
       - 'agentic/scripts/keycloak-oidc-smoke.mjs'
+      - 'agentic/lib/oidc-delegation-binding.js'
+      - 'agentic/tests/oidc-delegation-binding.test.js'
+      - 'agentic/lib/pilot-mcp.js'
       - '.github/workflows/r5-keycloak-oidc.yml'
   push:
     branches: [master]
@@ -12,6 +15,9 @@ on:
       - 'agentic/lib/mcp-oauth-resource.js'
       - 'agentic/tests/keycloak-token-profile.test.js'
       - 'agentic/scripts/keycloak-oidc-smoke.mjs'
+      - 'agentic/lib/oidc-delegation-binding.js'
+      - 'agentic/tests/oidc-delegation-binding.test.js'
+      - 'agentic/lib/pilot-mcp.js'
       - '.github/workflows/r5-keycloak-oidc.yml'
   workflow_dispatch:
   workflow_call:
@@ -32,6 +38,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Human issuer subject binding and signed delegation fail-closed unit tests
+        working-directory: agentic
+        run: node --test tests/oidc-delegation-binding.test.js
       - name: Create ephemeral realm, client secrets and test-only TLS certificate
         working-directory: agentic
         run: |
