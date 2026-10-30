@@ -18,6 +18,26 @@ jobs:
     uses: ./.github/workflows/r7-fenced-mcp.yml
     permissions:
       contents: read
+  required-native-pg:
+    name: R12 SQL privilege separation
+    uses: ./.github/workflows/r12-native-pg.yml
+    permissions:
+      contents: read
+  required-lease-expiry:
+    name: R13 lease expiry fencing
+    uses: ./.github/workflows/r13-expiring-lease.yml
+    permissions:
+      contents: read
+  required-delegation:
+    name: R14 cryptographic delegation
+    uses: ./.github/workflows/r14-delegation.yml
+    permissions:
+      contents: read
+  required-adversarial:
+    name: R15 fail-closed adversarial matrix
+    uses: ./.github/workflows/r15-adversarial.yml
+    permissions:
+      contents: read
   mandatory-security-gate:
     name: FARADAY mandatory Node Docker Vault and MCP
     runs-on: ubuntu-latest
@@ -67,7 +87,7 @@ jobs:
     # The existing GitHub master ruleset requires security (3.11/3.12/3.13).
     # A skipped required check can be treated as green, so ALWAYS run the
     # Python matrix and fail it if the shared mandatory gate did not succeed.
-    needs: [mandatory-security-gate, mandatory-keycloak, mandatory-postgres]
+    needs: [mandatory-security-gate, mandatory-keycloak, mandatory-postgres, required-native-pg, required-lease-expiry, required-delegation, required-adversarial]
     if: always()
     runs-on: ubuntu-latest
     strategy:
@@ -75,9 +95,9 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - name: Refuse merge if Node, Docker, Vault or MCP gate is not green
-        if: ${{ needs['mandatory-security-gate'].result != 'success' || needs['mandatory-keycloak'].result != 'success' || needs['mandatory-postgres'].result != 'success' }}
+        if: ${{ needs['mandatory-security-gate'].result != 'success' || needs['mandatory-keycloak'].result != 'success' || needs['mandatory-postgres'].result != 'success' || needs['required-native-pg'].result != 'success' || needs['required-lease-expiry'].result != 'success' || needs['required-delegation'].result != 'success' || needs['required-adversarial'].result != 'success' }}
         run: |
-          echo "FARADAY Node / Vault / Keycloak / Postgres mandatory security gate did not succeed"
+          echo "FARADAY R11–R15 required identity, native PostgreSQL, leases, delegation or adversarial gate did not succeed"
           exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

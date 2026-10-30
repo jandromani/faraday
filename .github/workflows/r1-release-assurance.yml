@@ -106,10 +106,30 @@ jobs:
     uses: ./.github/workflows/r7-fenced-mcp.yml
     permissions:
       contents: read
+  release-native-pg:
+    name: R12 SQL privilege separation
+    uses: ./.github/workflows/r12-native-pg.yml
+    permissions:
+      contents: read
+  release-lease-expiry:
+    name: R13 lease expiry fencing
+    uses: ./.github/workflows/r13-expiring-lease.yml
+    permissions:
+      contents: read
+  release-delegation:
+    name: R14 cryptographic delegation
+    uses: ./.github/workflows/r14-delegation.yml
+    permissions:
+      contents: read
+  release-adversarial:
+    name: R15 fail-closed adversarial matrix
+    uses: ./.github/workflows/r15-adversarial.yml
+    permissions:
+      contents: read
   attest-candidate:
     name: R1 candidate, exact archive/SBOM verification and Sigstore provenance
     if: github.ref == 'refs/heads/master'
-    needs: [regression-and-boundary, official-client, vault-least-privilege, live-keycloak, live-postgres]
+    needs: [regression-and-boundary, official-client, vault-least-privilege, live-keycloak, live-postgres, release-native-pg, release-lease-expiry, release-delegation, release-adversarial]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
