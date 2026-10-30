@@ -1,3 +1,15 @@
+## FARADAY v0.99.8 — R6/R7 protected execution and R8 outage fault injection
+
+The next Developer Preview will package a **Keycloak-issued machine JWT mapped to a signed FARADAY agent execution proof**, with independent backend attestation; and an opt-in
+**PostgreSQL-fenced synthetic HTTP backend** with separately credentialed gateways.
+Its CI reference demonstrates stale-leader denial, eight concurrent idempotent retries, PostgreSQL pause/recovery and no automatic replay of uncertain outcomes. This is not automatic HA, distributed exactly-once external effects, or enterprise SSO.
+
+First verified release: [v0.99.7-r5-preview](https://github.com/jandromani/faraday/releases/tag/v0.99.7-r5-preview); it does **not** include these newer R6/R7/R8 changes.
+
+The `v0.99.8-r9-preview` tag is only published after the protected-master R1 workflow passes exact package/SBOM verification, cross-OS onboarding, real Vault, Docker network tests and Sigstore verification. Do not presume the new release exists until GitHub confirms it. Details: [R7 reference](docs/R7_REAL_GATEWAY_FENCING.md) and [external verification protocol](docs/R9_R10_EXTERNAL_VALIDATION.md).
+
+---
+
 ## FARADAY v0.99.7 — Signed journal recovery snapshots
 
 SQLite online backup, Ed25519 manifest, offline verification and restore to **a new** journal path, with no tool re-execution. Snapshot contents are **not encrypted** by FARADAY: use secure external storage and trusted signing keys. No HA/RPO/RTO guarantee.
