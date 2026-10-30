@@ -1,6 +1,6 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.99.8",
+  "version": "0.99.9",
   "private": true,
   "description": "FARADAY signed journal recovery, Vault KVv2 and isolated MCP trust-boundary pilot",
   "type": "module",
@@ -96,7 +96,10 @@
     "./r3-runtime-gate": "./lib/r3-runtime-gate.js",
     "./r4-adapter-contract": "./lib/r4-adapter-contract.js",
     "./postgres-fencing-protocol": "./lib/postgres-fencing-protocol.js",
-    "./postgres-fenced-store": "./lib/postgres-fenced-store.js"
+    "./postgres-fenced-store": "./lib/postgres-fenced-store.js",
+    "./native-pg-fencing": "./lib/native-pg-fencing.js",
+    "./native-pg-lease": "./lib/native-pg-lease.js",
+    "./delegation-chain": "./lib/delegation-chain.js"
   },
   "files": [
     "bin",

@@ -1,6 +1,6 @@
 {
   "name": "@faraday/authority",
-  "version": "0.99.8",
+  "version": "0.99.9",
   "type": "module",
   "private": true,
   "description": "FARADAY Authority API migration boundary (workspace internal, not independently deployable)",
