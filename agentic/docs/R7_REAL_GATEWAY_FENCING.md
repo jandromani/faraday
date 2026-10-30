@@ -32,6 +32,17 @@ with gateway-specific secrets, and a shared PostgreSQL store. It checks:
   mismatched credential and direct calls are rejected;
 - Failed/uncertain operations are not retried blindly by FARADAY.
 
+## R8 storage-outage fault injection
+
+The same integrated CI harness now freezes the official PostgreSQL container
+during a protected MCP request. The gateway must return a non-success
+uncertain outcome, record it locally, never acknowledge a synthetic effect,
+and **not blindly retry** when PostgreSQL recovers. A newly signed,
+independently authorized operation must then succeed. Actual failure and
+recovery intervals are recorded, but these are not infrastructure RTO/RPO
+SLAs or a substitute for sustained partition tests. No cross-region network
+split or automatic election is claimed.
+
 ## Critically out of scope
 
 The only persistent effects are **synthetic** ledger rows. The example SQL
