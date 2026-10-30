@@ -83,7 +83,7 @@ if(process.argv[2]==='prepare'){
  const realm={realm:'faraday-r5',enabled:true,accessTokenLifespan:300,
   clientScopes:[custom('mcp:tools:read'),custom('mcp:tools:execute'),custom('faraday:delegate')],
   clients:[fmt(allowed),fmt(rogue),{...fmt(human),serviceAccountsEnabled:false,
-   directAccessGrantsEnabled:true,defaultClientScopes:['mcp:tools:read','mcp:tools:execute','faraday:delegate']}],
+   directAccessGrantsEnabled:true,defaultClientScopes:['basic','mcp:tools:read','mcp:tools:execute','faraday:delegate']}],
   users:[{username:human.username,email:'r19-operator@example.invalid',enabled:true,emailVerified:true,
    firstName:'CI',lastName:'Operator',requiredActions:[],
    credentials:[{type:'password',value:human.password,temporary:false}]}]};
