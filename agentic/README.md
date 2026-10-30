@@ -1,3 +1,25 @@
+## FARADAY v0.99.9 — R11–R15 gated Developer Preview
+
+This new release includes opt-in native PostgreSQL fencing, controller-only
+lease claims with expiry, signed attenuation of multi-agent delegation and an
+expanded adversarial security matrix. **Keycloak, Vault, native PostgreSQL,
+lease expiry, cryptographic delegation, replay, Docker/MCP and fuzzing are
+required gates before R1 can attest or publish the package.**
+
+Release link (only available after GitHub R1 completes successfully):
+https://github.com/jandromani/faraday/releases/tag/v0.99.9-r11-preview
+
+The PostgreSQL `pg` driver is deliberately optional and must be installed
+with an audited pinned version in the operator's approved adapter environment.
+The control plane and executor must have different DB principals. There is
+still no multi-AZ HA or external penetration-test certification.
+
+**Do not claim** the older v0.99.8 release contains these code changes,
+and do not treat this package as production-certified or as an external
+payment processing service.
+
+---
+
 ## FARADAY v0.99.8 — R6/R7 protected execution and R8 outage fault injection
 
 The next Developer Preview will package a **Keycloak-issued machine JWT mapped to a signed FARADAY agent execution proof**, with independent backend attestation; and an opt-in
