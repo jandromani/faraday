@@ -44,7 +44,8 @@ test('cannot forge signatures, splice parent chains or reuse intermediate keys',
  assert.throws(()=>verify([r2,h]),/delegation-denied/);
  const fake=narrower(r,A,B,c.privatePem);
  assert.throws(()=>verify([r,fake]),/delegation-denied/);
- assert.throws(()=>narrower(h,B,A,b.privatePem,2000),/delegation-denied/);
+ const revisited=narrower(h,B,A,b.privatePem,2000);
+ assert.throws(()=>verify([r,h,revisited]),/delegation-denied/);
 });
 test('expired root, expired hop and missing registry fail closed',()=>{
  const root=base(),hop=narrower(root);
