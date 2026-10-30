@@ -96,10 +96,20 @@ jobs:
       - name: Dispose of Vault
         if: always()
         run: docker rm -f faraday-r1-vault || true
+  live-keycloak:
+    name: R11 release Keycloak Vault Authority and MCP
+    uses: ./.github/workflows/r5-keycloak-oidc.yml
+    permissions:
+      contents: read
+  live-postgres:
+    name: R11 release PostgreSQL epoch fencing and outage
+    uses: ./.github/workflows/r7-fenced-mcp.yml
+    permissions:
+      contents: read
   attest-candidate:
     name: R1 candidate, exact archive/SBOM verification and Sigstore provenance
     if: github.ref == 'refs/heads/master'
-    needs: [regression-and-boundary, official-client, vault-least-privilege]
+    needs: [regression-and-boundary, official-client, vault-least-privilege, live-keycloak, live-postgres]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
