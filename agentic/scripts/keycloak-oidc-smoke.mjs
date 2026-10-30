@@ -8,6 +8,8 @@ import {mkdirSync,writeFileSync,readFileSync,mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {fixture,AGENT,ARGS,TOOL,RESOURCE,ACTION} from '../lib/authority-fixture.js';
 import {newIdentity,createIntent,createExecution} from '../lib/authority.js';
+import {createVerifiedOidcDelegation} from '../lib/oidc-delegation-binding.js';
+import {delegateNarrower} from '../lib/delegation-chain.js';
 import {ExecutionJournal,verifyReceipt} from '../lib/pilot-receipts.js';
 import {DurableSyntheticStore,createDurableSyntheticBackend} from '../lib/pilot-backend.js';
 import {createVaultKv2SecretProvider} from '../lib/vault-kv2-secret-provider.js';
@@ -76,12 +78,17 @@ if(process.argv[2]==='prepare'){
  const importDir=join(root,'import');mkdirSync(importDir,{recursive:true,mode:0o755});
  const allowed={id:'faraday-r5',value:randomBytes(32).toString('hex')};
  const rogue={id:'rogue-r5',value:randomBytes(32).toString('hex')};
+ const human={id:'faraday-human-lab',value:randomBytes(32).toString('hex'),username:'r19-operator',password:randomBytes(32).toString('hex')};
  const custom=name=>({name,protocol:'openid-connect',attributes:{'include.in.token.scope':'true','display.on.consent.screen':'false'}});
  const realm={realm:'faraday-r5',enabled:true,accessTokenLifespan:300,
-  clientScopes:[custom('mcp:tools:read'),custom('mcp:tools:execute')],
-  clients:[fmt(allowed),fmt(rogue)]};
+  clientScopes:[custom('mcp:tools:read'),custom('mcp:tools:execute'),custom('faraday:delegate')],
+  clients:[fmt(allowed),fmt(rogue),{...fmt(human),serviceAccountsEnabled:false,
+   directAccessGrantsEnabled:true,defaultClientScopes:['mcp:tools:read','mcp:tools:execute','faraday:delegate']}],
+  users:[{username:human.username,enabled:true,emailVerified:true,
+   firstName:'CI',lastName:'Operator',requiredActions:[],
+   credentials:[{type:'password',value:human.password,temporary:false}]}]};
  writeFileSync(join(importDir,'faraday-r5-realm.json'),JSON.stringify(realm),{mode:0o644,flag:'wx'});
- writeFileSync(join(root,'client-secrets.json'),JSON.stringify({allowed,rogue}),{mode:0o600,flag:'wx'});
+ writeFileSync(join(root,'client-secrets.json'),JSON.stringify({allowed,rogue,human}),{mode:0o600,flag:'wx'});
  console.log(JSON.stringify({kind:'faraday-oidc-fixture-prepared',mode:'ephemeral',credentialContentsLogged:false}));
 }else if(process.argv[2]==='verify'){
  const creds=JSON.parse(readFileSync(join(root,'client-secrets.json'),'utf8'));
@@ -111,11 +118,23 @@ if(process.argv[2]==='prepare'){
   return response.access_token;
  }
  const good=await mint(creds.allowed),rogue=await mint(creds.rogue);
+ const humanResponse=await fetch(doc.token_endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},
+  body:new URLSearchParams({grant_type:'password',client_id:creds.human.id,
+   client_secret:creds.human.value,username:creds.human.username,password:creds.human.password,
+   scope:'mcp:tools:execute faraday:delegate'}),redirect:'error',signal:AbortSignal.timeout(10000)});
+ assert.equal(humanResponse.status,200,'test-only Keycloak user token issue failed');
+ const humanBearer=(await humanResponse.json()).access_token;
+ assert.equal(humanBearer.split('.').length,3);
  const header=JSON.parse(Buffer.from(good.split('.')[0],'base64url').toString('utf8'));
  const publicJwk=keys.find(k=>k.kid===header.kid);
  assert.ok(publicJwk&&publicJwk.kty==='RSA','No RSA signing key for current Keycloak token');
  const resourceServer=new PinnedOAuthResource({issuer,resource,publicJwks:[publicJwk],
   tokenProfile:'keycloak-oidc',allowedClientIds:['faraday-r5']});
+ const humanResource=new PinnedOAuthResource({issuer,resource,publicJwks:[publicJwk],
+  tokenProfile:'keycloak-oidc',allowedClientIds:['faraday-human-lab']});
+ const humanIdentity=humanResource.verifyAuthorization('Bearer '+humanBearer,'faraday:delegate');
+ assert.equal(humanIdentity.clientId,'faraday-human-lab');
+ assert.ok(humanIdentity.subject&&!humanIdentity.subject.startsWith('service-account-'));
  const identity=resourceServer.verifyAuthorization('Bearer '+good,'mcp:tools:read');
  assert.equal(identity.clientId,'faraday-r5');
  resourceServer.verifyAuthorization('Bearer '+good,'mcp:tools:execute');
