@@ -51,7 +51,7 @@ let detachedA=false,detachedB=false;
 try{
  const initial=await until(async()=>{const s=await status(a);return s.active&&s.epoch?s:null;});
  const sA=initial.value,initialEpoch=BigInt(sA.epoch);
- const sB=await status(b);
+ const sB=(await until(async()=>await status(b))).value;
  assert.equal(sB.active,false,'B must not co-own the first live lease');
  assert.equal((await effect(a,op(1))).http,200);
  assert.equal(await count(),1);
