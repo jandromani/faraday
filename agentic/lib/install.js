@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, chmodSync, statSync, lstatSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -9,7 +9,10 @@ import {loadToolPolicy} from './security-policy.js';
 
 const object = x => x && typeof x === 'object' && !Array.isArray(x);
 const safeFile = (path,data,mode=0o600) => {
-  const temp=path+'.tmp-'+process.pid;
+  // On Windows stage secret-bearing JSON inside the ACL-protected FARADAY directory.
+  const temp=process.platform==='win32'
+    ?join(dirname(path),'.faraday','.config-'+process.pid+'-'+randomBytes(8).toString('hex')+'.tmp')
+    :path+'.tmp-'+process.pid;
   try {
     writeFileSync(temp,data,{encoding:'utf8',flag:'wx',mode});
     if(process.platform==='win32')protectWindowsAcl(temp);
@@ -87,6 +90,7 @@ export function uninstallProxy({configFile,server}) {
   if(!existsSync(file))throw Error('FARADAY backup not found');
   if(lstatSync(file).isSymbolicLink())throw Error('Unsafe backup symlink');
   if(process.platform==='win32'){
+    verifyWindowsAcl(join(dirname(path),'.faraday'));
     verifyWindowsAcl(dirname(file));verifyWindowsAcl(file);
   }
   const current=JSON.parse(readFileSync(path,'utf8'));
