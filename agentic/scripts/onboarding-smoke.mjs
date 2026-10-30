@@ -12,7 +12,7 @@ const npmCommand=existsSync(npmScript)?process.execPath:(process.platform==='win
 function npmArgs(args){return existsSync(npmScript)?[npmScript,...args]:(process.platform==='win32'?['/d','/c','npm',...args]:args);}
 function run(command,args,{cwd=packageRoot}={}){
  const result=spawnSync(command,args,{cwd,encoding:'utf8',timeout:60000,env:{...process.env,npm_config_audit:'false',npm_config_fund:'false',FARADAY_CI_DIAGNOSTICS:'1'}});
- if(result.status!==0){const category=String(result.stderr||'').match(/\[FARADAY CI\] install failure category: ([a-z-]+)/)?.[1]||'unclassified';throw Error('Onboarding subprocess failed (category: '+category+')');}
+ if(result.status!==0){const stderr=String(result.stderr||'');const category=stderr.match(/\[FARADAY CI\] install failure category: ([a-z-]+)/)?.[1]||'unclassified';const acl=stderr.match(/\[FARADAY ACL\] (?:protect|verify)\/(?:staged-config|private-parent|target-directory|active-config|private-backup|other)\/(?:owner-not-authorized|unexpected-ace|inherited-ace|access-denied|not-found|launch-failure|platform-acl-rejection)/)?.[0]||'none';throw Error('Onboarding subprocess failed (category: '+category+'; detail: '+acl+')');}
  return result.stdout;
 }
 try{
