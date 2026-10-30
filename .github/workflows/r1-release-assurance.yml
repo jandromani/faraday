@@ -139,13 +139,27 @@ jobs:
           path: ${{ runner.temp }}/faraday-r1-release/*
           if-no-files-found: error
           retention-days: 30
-      - name: Publish prerelease only after every gate and attestation passes
-        if: inputs.publish_prerelease == true
+      - name: Publish first attested Developer Preview once, after every R1 gate
+        if: inputs.publish_prerelease == true || github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           FARADAY_RELEASE_DIR: ${{ runner.temp }}/faraday-r1-release
         run: |
-          gh release create "v0.99.7-rc.${GITHUB_RUN_NUMBER}" "$FARADAY_RELEASE_DIR"/* \
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            tag="v0.99.7-r5-preview"
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "The one-time R5 Developer Preview already exists; no additional release"
+              exit 0
+            fi
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+              echo "Release tag already exists without the expected release; refusing to retarget"
+              exit 1
+            fi
+          else
+            tag="v0.99.7-rc.${GITHUB_RUN_NUMBER}"
+          fi
+          gh release create "$tag" "$FARADAY_RELEASE_DIR"/* \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
             --title 'FARADAY v0.99.7 Developer Preview (verified R1)' \
-            --notes 'Developer Preview only. Source-file SPDX inventory, package-integrity gate and hosted build provenance attested. Not an enterprise security certification; no npm publishing.'
+            --notes 'DEVELOPER PREVIEW ONLY. R1: official MCP clients on 3 OS, Vault AppRole, Docker no-bypass, package integrity and hosted GitHub Sigstore attestation. No production security certification, HA guarantee or npm publication.'

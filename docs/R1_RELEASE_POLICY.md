@@ -1,6 +1,6 @@
 # FARADAY R1 — Release assurance and protected master
 
-Status: **release pipeline prepared for automatic SHA-pinned candidate attestation on master**, not a verified release until the workflow completes on the exact commit. No public or private GitHub Release is created without explicit opt-in. A passing local test, queued workflow or code upload is not a build attestation.
+Status: **release pipeline prepared for automatic SHA-pinned candidate attestation on master**, not a verified release until the workflow completes on the exact commit. A one-time GitHub Developer Preview prerelease is explicitly requested by the R5 rollout after all gates and hosted attestation succeed; it is not an npm release or a security certification. A passing local test, queued workflow or code upload is not a build attestation.
 
 ## Verification gates
 
@@ -14,11 +14,11 @@ The workflow `FARADAY R1 Release Assurance and Attested Candidate` runs automati
 6. The local package archive matches **every source-file hash** in an SPDX 2.3 inventory, including archive path validation and pinned commit identity.
 7. GitHub OIDC/Sigstore creates a provenance attestation, and GitHub CLI verifies it.
 
-No npm publishing is implemented. With `publish_prerelease=false`, the workflow creates only a downloadable Actions artifact, not a GitHub Release. With `true`, GitHub creates a Developer Preview prerelease **only after every gate and attestation is successful**.
+No npm publishing is implemented. The first successful `master` push with this R5 rollout publishes the single immutable intended tag `v0.99.7-r5-preview` after all gates and attestation. Later automatic pushes detect the existing release and **do not publish another**. Explicit manual dispatch with `publish_prerelease=true` can create a separately numbered RC, again only after all gates. Check the release commit and provenance instead of trusting the title.
 
 ## Operator invocation and verification
 
-A successful merge into protected `master` automatically runs all R1 gates and uploads a SHA-pinned candidate with GitHub Sigstore provenance, without publishing a release. Alternatively, GitHub → Actions → **FARADAY R1 Release Assurance and Attested Candidate** → Run workflow → `master` with `publish_prerelease=false` for an explicit verification run. Use `true` only after checking the complete run, and note that the workflow re-runs all security and package gates.
+A successful merge into protected `master` automatically runs all R1 gates and uploads a SHA-pinned candidate with GitHub Sigstore provenance. The R5 release-rollout change enables one prerelease only, with a stable one-time tag and a fail-closed check for an existing tag. No npm publishing occurs. Alternatively, GitHub → Actions → **FARADAY R1 Release Assurance and Attested Candidate** → Run workflow → `master` with `publish_prerelease=false` for an explicit verification run. Use `true` only after checking the complete run, and note that the workflow re-runs all security and package gates.
 
 ```sh
 gh attestation verify faraday-agentic-0.99.7.tgz -R jandromani/faraday
