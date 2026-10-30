@@ -1,0 +1,62 @@
+name: FARADAY R13 Expiring Leader Leases
+on:
+  pull_request:
+    paths:
+      - 'agentic/sql/r13_expiring_leases.sql'
+      - 'agentic/lib/native-pg-lease.js'
+      - 'agentic/scripts/r13-expiring-lease-smoke.mjs'
+      - '.github/workflows/r13-expiring-lease.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'agentic/sql/r13_expiring_leases.sql'
+      - 'agentic/lib/native-pg-lease.js'
+      - 'agentic/scripts/r13-expiring-lease-smoke.mjs'
+      - '.github/workflows/r13-expiring-lease.yml'
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  lease-chaos:
+    name: Native PostgreSQL expiry, contender and stale-owner rejection
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Start SCRAM-only PostgreSQL
+        run: |
+          docker run -d --rm --name faraday-r13-postgres \
+            -p 127.0.0.1:15432:5432 \
+            -e POSTGRES_PASSWORD=faraday-r12-admin-ci \
+            -e POSTGRES_USER=faraday -e POSTGRES_DB=faraday \
+            -e POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 postgres:17
+          for i in $(seq 1 50); do
+            docker exec faraday-r13-postgres pg_isready -U faraday -d faraday -q && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Apply trusted R12 and R13 SQL migrations and strict principals
+        run: |
+          set -euo pipefail
+          docker exec -i faraday-r13-postgres psql -X -v ON_ERROR_STOP=1 -U faraday -d faraday <<'SQL'
+          CREATE ROLE faraday_executor LOGIN PASSWORD 'faraday-r12-exec-test';
+          CREATE ROLE faraday_controller LOGIN PASSWORD 'faraday-r12-ctrl-test';
+          SQL
+          for file in agentic/sql/r12_native_postgres.sql agentic/sql/r13_expiring_leases.sql; do
+            docker exec -i faraday-r13-postgres psql -X -v ON_ERROR_STOP=1 -U faraday -d faraday < "$file"
+          done
+      - name: Install isolated version-pinned pg driver for CI
+        working-directory: agentic
+        run: npm install --ignore-scripts --no-audit --no-fund --no-save pg@8.23.1
+      - name: Competing holders, withheld heartbeat, expiry and 12 concurrent retries
+        working-directory: agentic
+        run: node scripts/r13-expiring-lease-smoke.mjs
+      - name: Dispose
+        if: always()
+        run: docker rm -f faraday-r13-postgres || true
