@@ -1,0 +1,62 @@
+name: FARADAY R12 Native PostgreSQL Least Privilege
+on:
+  pull_request:
+    paths:
+      - 'agentic/sql/r12_native_postgres.sql'
+      - 'agentic/lib/native-pg-fencing.js'
+      - 'agentic/scripts/r12-native-pg-smoke.mjs'
+      - '.github/workflows/r12-native-pg.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'agentic/sql/r12_native_postgres.sql'
+      - 'agentic/lib/native-pg-fencing.js'
+      - 'agentic/scripts/r12-native-pg-smoke.mjs'
+      - '.github/workflows/r12-native-pg.yml'
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  real-native-postgres:
+    name: SCRAM PostgreSQL role separation and concurrent idempotency
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Start real PostgreSQL requiring SCRAM on TCP
+        run: |
+          docker run -d --rm --name faraday-r12-postgres \
+            -p 127.0.0.1:15432:5432 \
+            -e POSTGRES_PASSWORD=faraday-r12-admin-ci \
+            -e POSTGRES_USER=faraday -e POSTGRES_DB=faraday \
+            -e POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 \
+            postgres:17
+          for i in $(seq 1 50); do
+            if docker exec faraday-r12-postgres pg_isready -U faraday -d faraday -q; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Provision distinct effect and promotion principals and trusted SQL functions
+        run: |
+          set -euo pipefail
+          docker exec -i faraday-r12-postgres psql -X -v ON_ERROR_STOP=1 -U faraday -d faraday <<'SQL'
+          CREATE ROLE faraday_executor LOGIN PASSWORD 'faraday-r12-exec-test';
+          CREATE ROLE faraday_controller LOGIN PASSWORD 'faraday-r12-ctrl-test';
+          SQL
+          docker exec -i faraday-r12-postgres psql -X -v ON_ERROR_STOP=1 -U faraday -d faraday \
+            < agentic/sql/r12_native_postgres.sql
+      - name: Install version-pinned optional native driver only in isolated runner
+        working-directory: agentic
+        run: npm install --ignore-scripts --no-audit --no-fund --no-save pg@8.23.1
+      - name: Execute restricted roles and native PostgreSQL concurrency campaign
+        working-directory: agentic
+        run: node scripts/r12-native-pg-smoke.mjs
+      - name: Dispose
+        if: always()
+        run: docker rm -f faraday-r12-postgres || true
