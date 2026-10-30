@@ -18,7 +18,14 @@ if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'r
 $who = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $allowed = @($who,'S-1-5-18','S-1-5-32-544')
 $phase='get-acl'
-$acl = Get-Acl -LiteralPath $path
+function Read-FaradayAcl($target,$directory) {
+  try { return Get-Acl -LiteralPath $target -ErrorAction Stop }
+  catch {
+    if ($directory) { return [IO.Directory]::GetAccessControl($target) }
+    return [IO.File]::GetAccessControl($target)
+  }
+}
+$acl = Read-FaradayAcl $item.FullName $item.PSIsContainer
 if ($mode -eq 'protect') {
   $phase='protect-inheritance'
   $acl.SetAccessRuleProtection($true,$false)
@@ -34,9 +41,13 @@ if ($mode -eq 'protect') {
     [void]$acl.AddAccessRule($ace)
   }
   $phase='set-acl'
-  Set-Acl -LiteralPath $path -AclObject $acl -ErrorAction Stop
+  try { Set-Acl -LiteralPath $item.FullName -AclObject $acl -ErrorAction Stop }
+  catch {
+    if ($item.PSIsContainer) { [IO.Directory]::SetAccessControl($item.FullName,$acl) }
+    else { [IO.File]::SetAccessControl($item.FullName,$acl) }
+  }
   $phase='reopen-acl'
-  $acl = Get-Acl -LiteralPath $path
+  $acl = Read-FaradayAcl $item.FullName $item.PSIsContainer
 }
 $phase='verify-acl'
 if (-not $acl.AreAccessRulesProtected) { throw 'inherited-ace' }
