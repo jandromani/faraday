@@ -42,7 +42,8 @@
     "trust:test": "node --test tests/oauth-revocations.test.js tests/secret-file-provider.test.js tests/evidence-checkpoint.test.js tests/mcp-oauth-resource.test.js",
     "boundary:test": "node --test tests/vault-kv2-secret-provider.test.js tests/deployment-boundary.test.js",
     "recovery:test": "node --test tests/journal-backup.test.js",
-    "evidence:verify": "node scripts/verify-evidence.mjs"
+    "evidence:verify": "node scripts/verify-evidence.mjs",
+    "fencing:postgres:smoke": "node scripts/postgres-fencing-smoke.mjs"
   },
   "license": "Apache-2.0",
   "exports": {
@@ -93,7 +94,8 @@
     "./verified-evidence": "./lib/verified-evidence.js",
     "./r2-evidence-gate": "./lib/r2-evidence-gate.js",
     "./r3-runtime-gate": "./lib/r3-runtime-gate.js",
-    "./r4-adapter-contract": "./lib/r4-adapter-contract.js"
+    "./r4-adapter-contract": "./lib/r4-adapter-contract.js",
+    "./postgres-fencing-protocol": "./lib/postgres-fencing-protocol.js"
   },
   "files": [
     "bin",
