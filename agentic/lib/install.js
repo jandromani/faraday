@@ -79,7 +79,13 @@ export function installProxy({configFile,server,db,binPath,nodePath,dryRun=false
     json[key][server]=proxy;
     const mode=statSync(path).mode & 0o777;
     safeFile(path,JSON.stringify(json,null,2)+'\n',mode);
-  } catch(e) { try {unlinkSync(file);}catch{} throw e; }
+  } catch(e) {
+    // Preserve the original private backup if a failure happened after config replacement.
+    let unchanged=false;
+    try {unchanged=readFileSync(path,'utf8')===text;} catch {}
+    if(unchanged){try{unlinkSync(file);}catch{}}
+    throw e;
+  }
   return {server,transport,config:path,backup:file,db:resolve(db)};
 }
 export function uninstallProxy({configFile,server}) {
