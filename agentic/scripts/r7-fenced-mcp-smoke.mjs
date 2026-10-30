@@ -32,7 +32,7 @@ async function sql(query,params={}){
  const opts=[];
  for(const [key,val] of Object.entries(params)){
   if(!['scope','owner','epoch','operation','digest'].includes(key)||
-     typeof val!=='string'||val.length>128||!/^[A-Za-z0-9:_-]+$/.test(val))throw Error('invalid-sql-param');
+     typeof val!=='string'||val.length>128||!/^[A-Za-z0-9:._-]+$/.test(val))throw Error('invalid-sql-param');
   opts.push('-v',key+'='+val);
  }
  return run('docker',['exec','-i',container,'psql','-U','faraday','-d','faraday','-X','-q','-A','-t',
@@ -58,7 +58,7 @@ async function request(url,{capability,proof},args=ARGS){
  return {status:response.status,body:await response.json()};
 }
 const root=mkdtempSync(join(tmpdir(),'faraday-r7-e2e-'));
-const servers=[],contexts=[];
+const servers=[],contexts=[],journals=[];
 async function listen(s){await new Promise(resolve=>s.listen(0,'127.0.0.1',resolve));servers.push(s);
  return 'http://127.0.0.1:'+s.address().port;}
 try{
@@ -69,6 +69,7 @@ try{
  const a=fixture(aRoot),b=fixture(bRoot);contexts.push(a,b);
  const receipts=newIdentity(),backKey=newIdentity();
  const jA=new ExecutionJournal(join(aRoot,'journal.sqlite')),jB=new ExecutionJournal(join(bRoot,'journal.sqlite'));
+ journals.push(jA,jB);
  const db=new PostgresFencedSyntheticStore({executeSql:sql});
  const backend=await listen(createDurableSyntheticBackend({store:db,
   gatewaySecrets:{'gateway-a':a.backendSecret,'gateway-b':b.backendSecret},
@@ -127,6 +128,7 @@ try{
 }catch(error){console.error('R7 protected MCP fencing integration failed: '+String(error?.message||'unknown'));process.exitCode=1;}
 finally{
  for(const s of [...servers].reverse()){s.closeAllConnections?.();await new Promise(resolve=>s.close(resolve));}
+ for(const j of journals)j.close();
  for(const f of contexts)f.close();
  rmSync(root,{recursive:true,force:true});
 }
