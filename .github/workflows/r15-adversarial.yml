@@ -1,0 +1,33 @@
+name: FARADAY R15 Adversarial Abuse Matrix
+on:
+  pull_request:
+    paths:
+      - 'agentic/tests/r15-adversarial-negative.test.js'
+      - '.github/workflows/r15-adversarial.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'agentic/tests/r15-adversarial-negative.test.js'
+      - '.github/workflows/r15-adversarial.yml'
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  abuse:
+    name: Hostile effect and SQL injection tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: 500 malicious fixture mutations, refused SQL and TLS bypass
+        working-directory: agentic
+        run: node --test tests/r15-adversarial-negative.test.js
+      - name: Existing security fuzz and tool boundary regressions
+        working-directory: agentic
+        run: npm run security:fuzz
