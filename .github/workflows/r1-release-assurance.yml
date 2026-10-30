@@ -126,10 +126,15 @@ jobs:
     uses: ./.github/workflows/r15-adversarial.yml
     permissions:
       contents: read
+  release-network-partition:
+    name: R18 actual separated-container network partition
+    uses: ./.github/workflows/r18-network-partition.yml
+    permissions:
+      contents: read
   attest-candidate:
     name: R1 candidate, exact archive/SBOM verification and Sigstore provenance
     if: github.ref == 'refs/heads/master'
-    needs: [regression-and-boundary, official-client, vault-least-privilege, live-keycloak, live-postgres, release-native-pg, release-lease-expiry, release-delegation, release-adversarial]
+    needs: [regression-and-boundary, official-client, vault-least-privilege, live-keycloak, live-postgres, release-native-pg, release-lease-expiry, release-delegation, release-adversarial, release-network-partition]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
