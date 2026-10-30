@@ -11,7 +11,8 @@ import {createNativePgFencedExecutor} from '../lib/native-pg-fencing.js';
 import {PostgresFencedSyntheticStore} from '../lib/postgres-fenced-store.js';
 const owner=process.argv[2];
 if(!/^gateway-r18-[ab]$/.test(owner))throw Error('invalid-lab-owner');
-const db={host:'faraday-r18-db',port:5432,database:'faraday',connectionTimeoutMillis:400,
+const db={host:'faraday-r18-db',port:5432,database:'faraday',connectionTimeoutMillis:450,
+ query_timeout:450,statement_timeout:450,keepAlive:true,keepAliveInitialDelayMillis:200,
  idleTimeoutMillis:750,max:3};
 const controller=new Pool({...db,user:'faraday_controller',password:process.env.R18_CONTROLLER_PASSWORD});
 const executor=new Pool({...db,user:'faraday_executor',password:process.env.R18_EXECUTOR_PASSWORD});
