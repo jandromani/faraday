@@ -11,6 +11,7 @@ import {readFileSync as read} from 'node:fs';
 import {discover} from '../lib/discover.js';
 import {initialize,doctor} from '../lib/setup.js';
 import {installProxy,uninstallProxy} from '../lib/install.js';
+import {verifyWindowsAcl} from '../lib/windows-backup-acl.js';
 import {compatibilityReport,PROTOCOL_PROFILE} from '../lib/compatibility.js';
 import {GraphStore} from '../lib/store.js';
 import {normalizeSchema,compareSnapshots} from '../lib/contracts.js';
@@ -47,13 +48,14 @@ test('[E05] installer dry-run, double initialization, reversible wrapping and no
  initialize({root});initialize({root});assert.equal(doctor({root}).ready,true);
  const planned=installProxy({configFile:config,server:'sandbox',db:join(root,'.faraday','graph.sqlite'),nodePath:process.execPath,binPath:resolve('bin/faraday.js'),dryRun:true});
  assert.equal(planned.changed,false);assert.deepEqual(JSON.parse(readFileSync(config,'utf8')),raw);
- if(process.platform==='win32'){
-  assert.throws(()=>installProxy({configFile:config,server:'sandbox',db:join(root,'.faraday','graph.sqlite'),nodePath:process.execPath,binPath:resolve('bin/faraday.js')}),/backup ACL protection is not verified/);
-  assert.deepEqual(JSON.parse(readFileSync(config,'utf8')),raw);
-  t.skip('Windows auto-install is unavailable until backup ACL protection is verified');return;
- }
  const installed=installProxy({configFile:config,server:'sandbox',db:join(root,'.faraday','graph.sqlite'),nodePath:process.execPath,binPath:resolve('bin/faraday.js')});
- assert.ok(existsSync(installed.backup));uninstallProxy({configFile:config,server:'sandbox'});
+ assert.ok(existsSync(installed.backup));
+ if(process.platform==='win32') {
+  verifyWindowsAcl(installed.backup);
+  verifyWindowsAcl(join(root,'.faraday','targets'));
+  verifyWindowsAcl(config);
+ }
+ uninstallProxy({configFile:config,server:'sandbox'});
  assert.deepEqual(JSON.parse(readFileSync(config,'utf8')),raw);
  assert.equal(existsSync(installed.backup),false);
  assert.ok(!JSON.stringify({dry,planned,installed}).includes('DO_NOT_ECHO_ME'));
