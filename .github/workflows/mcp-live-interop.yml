@@ -5,9 +5,6 @@ on:
       - 'agentic/**'
       - '.github/workflows/mcp-live-interop.yml'
   pull_request:
-    paths:
-      - 'agentic/**'
-      - '.github/workflows/mcp-live-interop.yml'
   workflow_dispatch:
 permissions:
   contents: read
