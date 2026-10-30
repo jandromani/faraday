@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { configServers } from './discover.js';
 import { configuredHttpServer } from './http-bridge.js';
+import {protectWindowsAcl,verifyWindowsAcl} from './windows-backup-acl.js';
 import {loadToolPolicy} from './security-policy.js';
 
 const object = x => x && typeof x === 'object' && !Array.isArray(x);
@@ -11,8 +12,10 @@ const safeFile = (path,data,mode=0o600) => {
   const temp=path+'.tmp-'+process.pid;
   try {
     writeFileSync(temp,data,{encoding:'utf8',flag:'wx',mode});
-    chmodSync(temp,mode);
+    if(process.platform==='win32')protectWindowsAcl(temp);
+    else chmodSync(temp,mode);
     renameSync(temp,path);
+    if(process.platform==='win32')verifyWindowsAcl(path);
   } catch(e) {try{unlinkSync(temp);}catch{}throw e;}
 };
 function locate(config,server){
@@ -52,20 +55,23 @@ export function installProxy({configFile,server,db,binPath,nodePath,dryRun=false
   const {dir,file}=targetFile(path,server);
   if(existsSync(file))throw Error('Already installed; use uninstall before reinstall');
   if(dryRun) return {server,config:path,transport,command,changed:false,dryRun:true};
-  if(process.platform==='win32')throw Error('Auto-install unavailable on Windows: backup ACL protection is not verified; use dry-run or manual configuration');
   const parent=join(dirname(path),'.faraday');
   for (const check of [parent,dir]) {
     if (existsSync(check) && (lstatSync(check).isSymbolicLink() || !lstatSync(check).isDirectory()))
       throw Error('Unsafe FARADAY backup directory');
   }
   mkdirSync(dir,{recursive:true,mode:0o700});
-  chmodSync(dir,0o700);
+  if(process.platform==='win32'){
+    // Secure both parent and target before creating any credential-bearing backup.
+    protectWindowsAcl(parent);protectWindowsAcl(dir);
+  }else chmodSync(dir,0o700);
   const proxy={command:nodePath,args:[binPath,command,'--config',file,'--server',server,'--db',resolve(db),...(policyFile?['--policy',resolve(policyFile)]:[])]};
   const source={ [key]:{[server]:original},_faradayInstall:{version:1,wrapper:proxy} };
   // Backup contains original launch command, arguments and possibly credentials.
   // It is never committed or printed; owners should protect their local files.
   writeFileSync(file,JSON.stringify(source,null,2)+'\n',{encoding:'utf8',flag:'wx',mode:0o600});
-  chmodSync(file,0o600);
+  if(process.platform==='win32')protectWindowsAcl(file);
+  else chmodSync(file,0o600);
   try {
     json[key][server]=proxy;
     const mode=statSync(path).mode & 0o777;
@@ -80,6 +86,9 @@ export function uninstallProxy({configFile,server}) {
   const {file}=targetFile(path,server);
   if(!existsSync(file))throw Error('FARADAY backup not found');
   if(lstatSync(file).isSymbolicLink())throw Error('Unsafe backup symlink');
+  if(process.platform==='win32'){
+    verifyWindowsAcl(dirname(file));verifyWindowsAcl(file);
+  }
   const current=JSON.parse(readFileSync(path,'utf8'));
   const previous=JSON.parse(readFileSync(file,'utf8'));
   const key=locate(previous,server);
