@@ -4,7 +4,12 @@
  */
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
-import {mkdirSync,writeFileSync,readFileSync} from 'node:fs';
+import {mkdirSync,writeFileSync,readFileSync,mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {fixture} from '../lib/authority-fixture.js';
+import {newIdentity} from '../lib/authority.js';
+import {ExecutionJournal} from '../lib/pilot-receipts.js';
+import {createSecurePilotGateway} from '../lib/pilot-mcp.js';
 import {join,resolve} from 'node:path';
 import {PinnedOAuthResource} from '../lib/mcp-oauth-resource.js';
 const root=resolve(process.argv[3]||'.');
@@ -73,12 +78,47 @@ if(process.argv[2]==='prepare'){
  const revoked=new PinnedOAuthResource({issuer,resource,publicJwks:[publicJwk],
   tokenProfile:'keycloak-oidc',allowedClientIds:['faraday-r5'],revocations});
  assert.throws(()=>revoked.verifyAuthorization('Bearer '+good,'mcp:tools:read'),/invalid_token/);
+ // Exercise the real HTTP MCP gateway using bearer JWTs minted by Keycloak.
+ // No backend socket is created: tools/list may succeed, tools/call without an
+ // independently signed FARADAY authority proof MUST remain denied.
+ const work=mkdtempSync(join(root,'keycloak-mcp-gateway-'));
+ const f=fixture(work),journal=new ExecutionJournal(join(work,'journal.sqlite'));
+ const receiptKey=newIdentity(),backendKey=newIdentity();
+ const gateway=createSecurePilotGateway({gate:f.gate,
+  backendUrl:'http://127.0.0.1:18888/internal/execute',allowInsecureBackend:true,
+  backendSecret:f.backendSecret,journal,receiptPrivatePem:receiptKey.privatePem,
+  backendPublicPem:backendKey.publicPem,oauthResource:resourceServer});
+ try{
+  await new Promise(resolve=>gateway.listen(0,'127.0.0.1',resolve));
+  const gatewayUrl='http://127.0.0.1:'+gateway.address().port+'/mcp';
+  const ask=async(token,method,params,extra={})=>{
+   const r=await fetch(gatewayUrl,{method:'POST',headers:{'content-type':'application/json',
+    'mcp-protocol-version':'2026-07-28','mcp-method':method,
+    ...(method==='tools/call'?{'mcp-name':'pay_invoice'}:{}),
+    ...(token?{authorization:'Bearer '+token}:{}),...extra},
+    body:JSON.stringify({jsonrpc:'2.0',id:1,method,
+     params:{...params,_meta:{'io.modelcontextprotocol/protocolVersion':'2026-07-28'}}})});
+   await r.body?.cancel();
+   return r.status;
+  };
+  assert.equal(await ask(good,'tools/list',{}),200);
+  assert.equal(await ask(rogue,'tools/list',{}),401);
+  assert.equal(await ask(null,'tools/list',{}),401);
+  assert.equal(await ask(good,'tools/call',{name:'pay_invoice',
+   arguments:{amount_cents:100,currency:'EUR',recipient:'supplier_demo'}}),403);
+ }finally{
+  gateway.closeAllConnections();
+  await new Promise(resolve=>gateway.close(resolve));
+  journal.close();f.close();rmSync(work,{recursive:true,force:true});
+ }
  console.log(JSON.stringify({kind:'faraday-r5-real-https-oidc',result:'pass',
   controls:['TLS-validated-OIDC-discovery','provider-issued-RS256-token','pinned-JWKS',
     'exact-resource-audience','read-scope','execute-scope','authorized-client-only',
-    'forged-signature-denied','local-revocation-denied'],
+    'forged-signature-denied','local-revocation-denied',
+    'real-http-mcp-list-allowed','rogue-client-gateway-denied','missing-bearer-gateway-denied',
+    'bearer-without-authority-proof-denied'],
   issuerType:'official-keycloak',clientCredentialsFrom:'runtime-generated-CI-fixture',
   limitations:['Keycloak development-mode only','test-only certificate and realm',
     'no production SSO, token exchange or agent delegation attestation',
-    'not full real-gateway or R2 enterprise acceptance']}));
+    'real HTTP read boundary tested, but no production gateway deployment or enterprise R2 acceptance']}));
 }else{throw Error('usage: keycloak-oidc-smoke.mjs prepare|verify ROOT');}
