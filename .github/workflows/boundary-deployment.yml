@@ -1,13 +1,13 @@
 name: FARADAY Vault and Network Trust Boundary
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 on:
   push:
     paths:
       - 'agentic/**'
       - '.github/workflows/boundary-deployment.yml'
   pull_request:
-    paths:
-      - 'agentic/**'
-      - '.github/workflows/boundary-deployment.yml'
 jobs:
   kv2:
     name: Vault API mock + deployment assertions / ${{ matrix.os }} / Node ${{ matrix.node }}

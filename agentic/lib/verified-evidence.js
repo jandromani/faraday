@@ -48,6 +48,8 @@ export function verifyEvidenceBundle({root,manifestPath,profile,expectedCommit}=
     if(!isObj(check)||!validPath(check.artifact,profile)||seen.has(check.artifact)||!sha64.test(check.evidenceSha256??check.artifactSha256??''))
       throw Error('invalid-evidence-reference');
     seen.add(check.artifact);
+  }
+  for(const check of report.checks){
     const bytes=fileBytes(check.artifact,root,maxEvidenceBytes);
     const declared=profile==='r2'?check.evidenceSha256:check.artifactSha256;
     if(digest(bytes)!==declared)throw Error('evidence-digest-mismatch:'+check.id);

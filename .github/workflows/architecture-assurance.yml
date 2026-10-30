@@ -1,13 +1,13 @@
 name: FARADAY Architecture and Blocking Assurance
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 on:
   push:
     paths:
       - 'agentic/**'
       - '.github/workflows/architecture-assurance.yml'
   pull_request:
-    paths:
-      - 'agentic/**'
-      - '.github/workflows/architecture-assurance.yml'
   workflow_dispatch:
 permissions:
   contents: read

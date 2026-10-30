@@ -1,13 +1,13 @@
 name: FARADAY Live MCP Interoperability
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 on:
   push:
     paths:
       - 'agentic/**'
       - '.github/workflows/mcp-live-interop.yml'
   pull_request:
-    paths:
-      - 'agentic/**'
-      - '.github/workflows/mcp-live-interop.yml'
   workflow_dispatch:
 permissions:
   contents: read

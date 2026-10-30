@@ -1,13 +1,13 @@
 name: FARADAY 15-Epic Scoped Acceptance
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 on:
   push:
     paths:
       - 'agentic/**'
       - '.github/workflows/epic-closure.yml'
   pull_request:
-    paths:
-      - 'agentic/**'
-      - '.github/workflows/epic-closure.yml'
   workflow_dispatch:
 permissions:
   contents: read

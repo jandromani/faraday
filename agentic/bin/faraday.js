@@ -414,4 +414,17 @@ async function main() {
     process.stdout.write(`Demo completed: ${stats.nodes} nodes, ${stats.edges} edges, ${stats.toolCalls} tool calls.\nOpen the graph with: faraday serve --db ${fileDB(flags)}\n`);
   } else throw new Error('Unknown command');
 }
-main().catch(() => {process.stderr.write('[FARADAY] Command failed. Check options and local configuration.\n');process.exitCode=1;});
+main().catch(error => {
+  // CI-only, classified diagnostics: never print exception data, config, paths or secrets.
+  if(process.env.FARADAY_CI_DIAGNOSTICS==='1'){
+    const message=String(error?.message||'');
+    const code=String(error?.code||'');
+    const kind=message.includes('backup ACL protection is not verified')?'windows-acl':
+      message.includes('Already installed')?'already-installed':
+      message.includes('Unsafe FARADAY backup directory')?'backup-directory':
+      message.includes('Config changed')?'config-conflict':
+      ['EPERM','EACCES','ENOENT','EEXIST','ENOTEMPTY'].includes(code)?code:'unexpected';
+    process.stderr.write('[FARADAY CI] install failure category: '+kind+'\\n');
+  }
+  process.stderr.write('[FARADAY] Command failed. Check options and local configuration.\\n');process.exitCode=1;
+});
