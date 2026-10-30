@@ -46,7 +46,7 @@ jobs:
           node scripts/keycloak-oidc-smoke.mjs prepare "$root"
       - name: Start official Keycloak with HTTPS on loopback only
         run: |
-          docker run -d --rm --name faraday-r5-keycloak --memory 2g \
+          docker run -d --name faraday-r5-keycloak --memory 2g \
             -p 127.0.0.1:18443:8443 \
             -v "$RUNNER_TEMP/faraday-r5-idp/import:/opt/keycloak/data/import:ro" \
             -v "$RUNNER_TEMP/faraday-r5-idp/identity.key:/opt/keycloak/conf/r5.key:ro" \
@@ -61,6 +61,13 @@ jobs:
         env:
           NODE_EXTRA_CA_CERTS: ${{ runner.temp }}/faraday-r5-idp/identity.crt
         run: node scripts/keycloak-oidc-smoke.mjs verify "$RUNNER_TEMP/faraday-r5-idp"
+      - name: Diagnose failed Keycloak startup without exposing fixtures
+        if: failure()
+        run: |
+          docker inspect -f 'Keycloak state={{.State.Status}} exit={{.State.ExitCode}}' faraday-r5-keycloak || true
+          docker logs faraday-r5-keycloak 2>&1 \
+            | grep -Ei 'error|exception|failed|permission denied|unrecognized option|invalid option|WARN' \
+            | tail -n 30 || true
       - name: Destroy disposable Keycloak
         if: always()
         run: docker rm -f faraday-r5-keycloak || true
