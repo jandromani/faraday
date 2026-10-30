@@ -81,7 +81,10 @@ if(process.argv[2]==='prepare'){
  const human={id:'faraday-human-lab',value:randomBytes(32).toString('hex'),username:'r19-operator',password:randomBytes(32).toString('hex')};
  const custom=name=>({name,protocol:'openid-connect',attributes:{'include.in.token.scope':'true','display.on.consent.screen':'false'}});
  const realm={realm:'faraday-r5',enabled:true,accessTokenLifespan:300,
-  clientScopes:[custom('mcp:tools:read'),custom('mcp:tools:execute'),custom('faraday:delegate')],
+  clientScopes:[custom('mcp:tools:read'),custom('mcp:tools:execute'),custom('faraday:delegate'),
+   {name:'basic',protocol:'openid-connect',attributes:{'include.in.token.scope':'false'},
+    protocolMappers:[{name:'Subject (sub)',protocol:'openid-connect',
+     protocolMapper:'oidc-sub-mapper',config:{'access.token.claim':'true','lightweight.claim':'false'}}]}],
   clients:[fmt(allowed),fmt(rogue),{...fmt(human),serviceAccountsEnabled:false,
    directAccessGrantsEnabled:true,defaultClientScopes:['basic','mcp:tools:read','mcp:tools:execute','faraday:delegate']}],
   users:[{username:human.username,email:'r19-operator@example.invalid',enabled:true,emailVerified:true,
