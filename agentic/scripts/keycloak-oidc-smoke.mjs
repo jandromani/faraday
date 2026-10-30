@@ -32,7 +32,7 @@ if(process.argv[2]==='prepare'){
  const realm={realm:'faraday-r5',enabled:true,accessTokenLifespan:300,
   clientScopes:[custom('mcp:tools:read'),custom('mcp:tools:execute')],
   clients:[fmt(allowed),fmt(rogue)]};
- writeFileSync(join(importDir,'faraday-realm.json'),JSON.stringify(realm),{mode:0o644,flag:'wx'});
+ writeFileSync(join(importDir,'faraday-r5-realm.json'),JSON.stringify(realm),{mode:0o644,flag:'wx'});
  writeFileSync(join(root,'client-secrets.json'),JSON.stringify({allowed,rogue}),{mode:0o600,flag:'wx'});
  console.log(JSON.stringify({kind:'faraday-oidc-fixture-prepared',mode:'ephemeral',credentialContentsLogged:false}));
 }else if(process.argv[2]==='verify'){
