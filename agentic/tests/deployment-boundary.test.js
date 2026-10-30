@@ -10,8 +10,8 @@ function fixture(){
  return {services:{
   'dummy-agent':base(['agent_zone'],[{target:'/app'},{target:'/run/agent'}]),
   'rogue-agent':base(['agent_zone'],[{target:'/app'}]),
-  gateway:base(['agent_zone','backend_private'],[{target:'/run/faraday'},{target:'/run/state'}]),
-  backend:base(['backend_private'],[{target:'/run/backend-state'}])},
+  gateway:base(['agent_zone','backend_private'],[{target:'/app'},{target:'/run/faraday'},{target:'/run/state'}]),
+  backend:base(['backend_private'],[{target:'/app'},{target:'/run/faraday/backend-secret'},{target:'/run/backend-state'}])},
   networks:{agent_zone:{internal:true},backend_private:{internal:true}}};
 }
 const copy=v=>structuredClone(v);
