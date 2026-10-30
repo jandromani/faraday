@@ -37,11 +37,16 @@ async function bounded(response,maxBytes=8192){
 }
 export function createSecurePilotGateway({gate,backendUrl,backendSecret,backendSecretProvider=null,journal,receiptPrivatePem,backendPublicPem,
       fetchFn=fetch,onEvent=()=>{},now=()=>Math.floor(Date.now()/1000),allowedOrigins=[],
-  approvalConfig=null,sentinel=null,budget=null,oauthResource=null,externalPolicy=null,allowInsecureBackend=false}){
+  approvalConfig=null,sentinel=null,budget=null,oauthResource=null,externalPolicy=null,allowInsecureBackend=false,fencingLease=null}){
   const endpoint=pilotBackendEndpoint(backendUrl,{allowInsecureBackend});
   if((backendSecretProvider===null?(typeof backendSecret!=='string'||backendSecret.length<32):(typeof backendSecretProvider!=='function'||backendSecret!==undefined))||!gate||!journal||typeof journal.reserve!=='function'||!receiptPrivatePem||!backendPublicPem)throw Error('Secure Pilot requires gate, journal, gateway/backend signing identities and service credential');
   if(approvalConfig && (!approvalConfig.approverKeys||!Number.isSafeInteger(approvalConfig.quorum)||approvalConfig.quorum<1))throw Error('Invalid approval configuration');
   const evaluateExternalPolicy=externalPolicy===null?null:createFailClosedGatewayPolicyPort(externalPolicy);
+  if(fencingLease!==null && (!fencingLease||typeof fencingLease!=='object'||
+    Object.keys(fencingLease).sort().join('|')!=='epoch|owner'||
+    !/^gateway-[a-z0-9-]{1,30}$/.test(fencingLease.owner)||
+    typeof fencingLease.epoch!=='string'||!/^[1-9][0-9]{0,14}$/.test(fencingLease.epoch)))
+    throw Error('Invalid fencing lease');
   return http.createServer(async(req,res)=>{
     if(req.url==='/healthz'&&req.method==='GET')return json(res,200,{service:'faraday-secure-pilot',status:'ok'});
     if(oauthResource && req.method==='GET' && ['/.well-known/oauth-protected-resource/mcp','/.well-known/oauth-protected-resource'].includes(req.url)){
@@ -136,7 +141,8 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,backendS
     try{
       const upstream=await fetchFn(endpoint,{method:'POST',redirect:'error',signal:AbortSignal.timeout(3000),headers:{
         'content-type':'application/json','authorization':`Bearer ${currentSecret}`},body:JSON.stringify({
-        tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args,operationId:auth.jti})});
+        tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args,operationId:auth.jti,
+        ...(fencingLease?{fenceOwner:fencingLease.owner,fenceEpoch:fencingLease.epoch}:{})})});
       const result=await bounded(upstream);
       const expected=digest({tool:auth.tool,resource:auth.resource,action:auth.action,args:auth.args});
       if(upstream.status===200 && result.status==='simulated' && result.operationId===auth.jti && result.requestHash===expected){
