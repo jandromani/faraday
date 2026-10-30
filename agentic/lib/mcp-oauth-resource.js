@@ -101,6 +101,6 @@ export class PinnedOAuthResource {
       try{if(this.revocations.isRevoked({jti:payload.jti,subject:payload.sub,clientId}))reject('invalid_token');}
       catch{reject('invalid_token');}
     }
-    return {subject:payload.sub,clientId,scope};
+    return {subject:payload.sub,clientId,scope,expiresAt:payload.exp,issuedAt:payload.iat};
   }
 }

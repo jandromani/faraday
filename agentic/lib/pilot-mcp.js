@@ -37,7 +37,7 @@ async function bounded(response,maxBytes=8192){
 }
 export function createSecurePilotGateway({gate,backendUrl,backendSecret,backendSecretProvider=null,journal,receiptPrivatePem,backendPublicPem,
       fetchFn=fetch,onEvent=()=>{},now=()=>Math.floor(Date.now()/1000),allowedOrigins=[],
-  approvalConfig=null,sentinel=null,budget=null,oauthResource=null,oauthClientAgentBindings=null,externalPolicy=null,allowInsecureBackend=false,fencingLease=null}){
+  approvalConfig=null,sentinel=null,budget=null,oauthResource=null,oauthClientAgentBindings=null,delegationVerifier=null,externalPolicy=null,allowInsecureBackend=false,fencingLease=null}){
   const endpoint=pilotBackendEndpoint(backendUrl,{allowInsecureBackend});
   if((backendSecretProvider===null?(typeof backendSecret!=='string'||backendSecret.length<32):(typeof backendSecretProvider!=='function'||backendSecret!==undefined))||!gate||!journal||typeof journal.reserve!=='function'||!receiptPrivatePem||!backendPublicPem)throw Error('Secure Pilot requires gate, journal, gateway/backend signing identities and service credential');
   if(approvalConfig && (!approvalConfig.approverKeys||!Number.isSafeInteger(approvalConfig.quorum)||approvalConfig.quorum<1))throw Error('Invalid approval configuration');
@@ -53,6 +53,8 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,backendS
     Object.keys(oauthClientAgentBindings).length<1||Object.keys(oauthClientAgentBindings).length>16||
     Object.entries(oauthClientAgentBindings).some(([client,agent])=>
       !/^[A-Za-z0-9_.-]{3,128}$/.test(client)||typeof agent!=='string'||!/^faraday:\/\/[A-Za-z0-9/_-]{3,160}$/.test(agent))))throw Error('Invalid OAuth client-agent binding');
+  if(delegationVerifier!==null&&(!oauthResource||typeof delegationVerifier.verify!=='function'))
+    throw Error('Delegation verification requires OAuth resource');
   const identityMatches=(identity,agent)=>Boolean(identity&&(
     identity.subject===agent||oauthClientAgentBindings!==null&&
     Object.hasOwn(oauthClientAgentBindings,identity.clientId)&&
@@ -107,7 +109,7 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,backendS
     const remote=req.socket.remoteAddress??'unknown';
     try{if(sentinel?.isBlocked(remote))return json(res,403,rpcError(msg.id,-32003,'FARADAY execution suspended'));}
     catch{return json(res,503,rpcError(msg.id,-32004,'FARADAY incident ledger unavailable'));}
-    let auth,currentSecret=backendSecret,approvalEvidence=null;
+    let auth,currentSecret=backendSecret,approvalEvidence=null,delegationApproved=false;
     try{
       if(msg.params?.name!=='pay_invoice'||!msg.params.arguments||typeof msg.params.arguments!=='object'||Array.isArray(msg.params.arguments))throw new AuthorityError('unknown-tool');
       const capability=req.headers['x-faraday-capability'];
@@ -136,9 +138,21 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,backendS
           action:proof.payload.action,args:msg.params.arguments,now:now(),excludedPublicPem:gate.registry[proof.payload.agent]});
         approvalEvidence={approvalDigest:approval.approvalDigest,bundle};
       }
-          if(oauthResource&&!identityMatches(oauthIdentity,proof.payload?.agent))throw new AuthorityError('oauth-agent-mismatch');
+      if(delegationVerifier){
+        const chain=decode(req.headers['x-faraday-delegation']);
+        if(!Array.isArray(chain)||chain.length<1||chain.length>4)throw new AuthorityError('invalid-delegation-chain');
+        const verified=delegationVerifier.verify({authorizationHeader:req.headers.authorization,chain,
+          expected:{agent:proof.payload?.agent,tool:proof.payload?.tool,
+            resource:proof.payload?.resource,action:proof.payload?.action,
+            amountCents:msg.params.arguments.amount_cents}});
+        if(!verified||typeof verified.then==='function'||
+          verified.agent!==proof.payload?.agent)throw new AuthorityError('oidc-delegation-denied');
+        delegationApproved=true;
+      }
+      if(oauthResource&&!delegationApproved&&!identityMatches(oauthIdentity,proof.payload?.agent))
+        throw new AuthorityError('oauth-agent-mismatch');
       auth=gate.authorize({capability,proof});
-      if(oauthResource && !identityMatches(oauthIdentity,auth.agent))throw new AuthorityError('oauth-agent-mismatch');
+      if(oauthResource && !delegationApproved && !identityMatches(oauthIdentity,auth.agent))throw new AuthorityError('oauth-agent-mismatch');
       if(auth.tool!=='pay_invoice'||auth.resource!=='invoice:demo'||auth.action!=='pay')throw new AuthorityError('invalid-scope');
       // Consume the quota before any backend side effect; failures burn this capability (fail-closed).
       budget?.consume(auth.agent);
