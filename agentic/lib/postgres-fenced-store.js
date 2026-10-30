@@ -39,7 +39,17 @@ export class PostgresFencedSyntheticStore {
    http:200,status:'simulated',duplicate:outcome==='duplicate',
    operationId:body.operationId,requestHash};
   if(outcome==='fenced')return {http:409,status:'fenced'};
-  if(outcome==='conflict')return {http:409,status:'conflicting-operation'};
+  if(outcome==='conflict'){
+   // Concurrent READ COMMITTED statements can see ON CONFLICT before their
+   // statement snapshot sees the winning row. Reconcile AFTER the statement.
+   // Never repeat the insert; a matching committed hash is an idempotent replay.
+   try{
+    const committed=await this.get(body.operationId);
+    if(committed?.request_hash===requestHash)return {
+     http:200,status:'simulated',duplicate:true,operationId:body.operationId,requestHash};
+   }catch{return {http:503,status:'storage-unavailable'};}
+   return {http:409,status:'conflicting-operation'};
+  }
   return {http:503,status:'storage-unavailable'};
  }
  async get(id){
