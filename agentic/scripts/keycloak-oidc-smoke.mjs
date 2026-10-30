@@ -118,7 +118,7 @@ if(process.argv[2]==='prepare'){
   assert.equal(store.count(),0);
   assert.equal(await ask(good,'tools/call',{name:'pay_invoice',arguments:ARGS},authorityHeaders),200);
   assert.equal(store.count(),1);
-  const id=f.proof.payload.jti;
+  const id=JSON.parse(Buffer.from(f.capability,'base64url').toString('utf8')).payload.jti;
   const recorded=journal.get(id);
   assert.equal(recorded?.state,'simulated');
   assert.equal(verifyReceipt({publicPem:receiptKey.publicPem,backendPublicPem:backendKey.publicPem,
