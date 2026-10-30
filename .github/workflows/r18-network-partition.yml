@@ -1,0 +1,96 @@
+name: FARADAY R18 Actual Docker Network Partition
+on:
+  pull_request:
+    paths:
+      - 'agentic/scripts/r18-partition-worker.mjs'
+      - 'agentic/scripts/r18-network-partition-smoke.mjs'
+      - '.github/workflows/r18-network-partition.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'agentic/scripts/r18-partition-worker.mjs'
+      - 'agentic/scripts/r18-network-partition-smoke.mjs'
+      - '.github/workflows/r18-network-partition.yml'
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  physical-split:
+    name: Two separate node containers, two network partitions and stale-epoch refusal
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install version-pinned PostgreSQL client only in CI
+        working-directory: agentic
+        run: npm install --ignore-scripts --no-audit --no-fund --no-save pg@8.23.1
+      - name: Set up two isolated Docker bridges and official PostgreSQL
+        run: |
+          set -euo pipefail
+          docker network create faraday-r18-dbnet
+          docker network create faraday-r18-observer
+          docker run -d --name faraday-r18-db --network faraday-r18-dbnet \
+            -e POSTGRES_PASSWORD=faraday-r18-ci-test \
+            -e POSTGRES_USER=faraday -e POSTGRES_DB=faraday \
+            -e POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 postgres:17
+          for i in $(seq 1 50); do
+            if docker exec faraday-r18-db pg_isready -q -U faraday -d faraday; then break; fi
+            sleep 1
+          done
+          docker exec -i faraday-r18-db psql -X -v ON_ERROR_STOP=1 -U faraday -d faraday <<'SQL'
+          CREATE ROLE faraday_executor LOGIN PASSWORD 'faraday-r18-exec-lab';
+          CREATE ROLE faraday_controller LOGIN PASSWORD 'faraday-r18-control-lab';
+          SQL
+          for f in agentic/sql/r12_native_postgres.sql agentic/sql/r13_expiring_leases.sql; do
+            docker exec -i faraday-r18-db psql -X -v ON_ERROR_STOP=1 -U faraday -d faraday < "$f"
+          done
+      - name: Start two distinct worker containers and independent observation network
+        env:
+          R18_LAB_TOKEN: ${{ github.run_id }}-${{ github.sha }}-lab-only
+        run: |
+          set -euo pipefail
+          for item in 'a 17811' 'b 17812'; do
+            set -- $item
+            label="$1"; port="$2"
+            docker run -d --name "faraday-r18-$label" \
+              --network faraday-r18-observer \
+              -p "127.0.0.1:$port:7080" \
+              -v "$PWD/agentic:/app:ro" -w /app \
+              -e R18_LAB_TOKEN="$R18_LAB_TOKEN" \
+              -e R18_CONTROLLER_PASSWORD=faraday-r18-control-lab \
+              -e R18_EXECUTOR_PASSWORD=faraday-r18-exec-lab \
+              node:24-alpine node scripts/r18-partition-worker.mjs "gateway-r18-$label"
+            docker network connect faraday-r18-dbnet "faraday-r18-$label"
+            if [ "$label" = "a" ]; then
+              for i in $(seq 1 45); do
+                if curl --fail --silent "http://127.0.0.1:17811/status" | grep -q '"active":true'; then break; fi
+                sleep 0.2
+              done
+            fi
+          done
+      - name: Cut/reconnect database network twice; require no stale leader effects
+        env:
+          R18_LAB_TOKEN: ${{ github.run_id }}-${{ github.sha }}-lab-only
+        working-directory: agentic
+        run: node scripts/r18-network-partition-smoke.mjs
+      - name: Diagnose CI failure without printing credentials
+        if: failure()
+        run: |
+          for name in faraday-r18-a faraday-r18-b; do
+            docker inspect --format '{{.Name}} {{.State.Status}} {{.State.ExitCode}}' "$name" || true
+            docker logs "$name" 2>&1 | tail -n 15 || true
+            curl --max-time 2 --fail --silent "http://127.0.0.1:$( [ "$name" = "faraday-r18-a" ] && echo 17811 || echo 17812 )/status" || true
+            echo
+          done
+          docker inspect --format '{{.Name}} {{.State.Status}} {{.State.ExitCode}}' faraday-r18-db || true
+      - name: Destroy test-only workers, database and networks
+        if: always()
+        run: |
+          docker rm -f faraday-r18-a faraday-r18-b faraday-r18-db || true
+          docker network rm faraday-r18-dbnet faraday-r18-observer || true
