@@ -31,12 +31,20 @@ try{
  if(!tools.tools.some(tool=>tool.name==='list_allowed_directories'))throw Error('Read-only tool not listed');
  const result=await client.callTool({name:'list_allowed_directories',arguments:{}},undefined,{timeout:15000});
  if(result.isError||!Array.isArray(result.content)||!result.content.length)throw Error('Read-only call failed');
- const graph=new GraphStore(join(root,'graph.sqlite'));let recorded;
- try{
-  recorded={contracts:graph.db.prepare("SELECT COUNT(*) AS n FROM contracts WHERE server='filesystem' AND tool='list_allowed_directories'").get().n,
-   calls:graph.db.prepare("SELECT COUNT(*) AS n FROM events WHERE server='filesystem' AND tool='list_allowed_directories' AND kind='tool_call' AND direction='response' AND status='ok'").get().n};
- }finally{graph.close();}
- if(recorded.contracts!==1||recorded.calls!==1)throw Error('Proxy did not record the read-only contract and response');
+ let recorded={contracts:0,calls:0};
+ // The MCP result may reach the SDK before the proxy's separate SQLite writer flushes.
+ // Wait only for the *actual persisted* result; never synthesize evidence.
+ for(let attempt=0;attempt<40;attempt++){
+  const graph=new GraphStore(join(root,'graph.sqlite'));
+  try{
+   recorded={contracts:graph.db.prepare("SELECT COUNT(*) AS n FROM contracts WHERE server='filesystem' AND tool='list_allowed_directories'").get().n,
+    calls:graph.db.prepare("SELECT COUNT(*) AS n FROM events WHERE server='filesystem' AND tool='list_allowed_directories' AND kind='tool_call' AND direction='response' AND status='ok'").get().n};
+  }finally{graph.close();}
+  if(recorded.contracts===1&&recorded.calls===1)break;
+  if(recorded.contracts>1||recorded.calls>1)break;
+  await new Promise(resolve=>setTimeout(resolve,75));
+ }
+ if(recorded.contracts!==1||recorded.calls!==1)throw Error('Proxy did not persist exactly one read-only contract and response');
  console.log(JSON.stringify({kind:'faraday-real-mcp-client-smoke',result:'pass',platform:process.platform,node:process.version,
   clientVersion:sdkPackage.version,serverVersion:serverPackage.version,transport:'stdio',negotiatedVersion,toolsObserved:tools.tools.length,
   readOnlyCall:'list_allowed_directories',recorded,scope:'official SDK client through FARADAY proxy to official filesystem server; not full conformance'},null,2));
