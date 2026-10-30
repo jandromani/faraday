@@ -18,7 +18,7 @@ const executor=new Pool({...db,user:'faraday_executor',password:process.env.R18_
 const coordinator=createNativePgLeaseCoordinator({controllerPool:controller});
 const store=new PostgresFencedSyntheticStore({executeSql:createNativePgFencedExecutor({pool:executor})});
 const ttlMs=1000;
-let epoch=null,active=false,connected=false,heartbeatCount=0,lastError=false,busy=false;
+let epoch=null,active=false,connected=false,heartbeatCount=0,lastError=false,lastErrorCode='none',busy=false;
 const heartbeat=async()=>{
  if(busy)return;busy=true;
  try{
@@ -26,7 +26,8 @@ const heartbeat=async()=>{
   connected=true;lastError=false;heartbeatCount++;
   if(result!==null){epoch=result;active=true;}
   else active=false;
- }catch{
+ }catch(e){
+  lastErrorCode=typeof e?.code==='string'&&/^[A-Z0-9_]{2,32}$/.test(e.code)?e.code:'connection-failed';
   // Never assume local leadership after losing DB connectivity.
   connected=false;active=false;lastError=true;
  }finally{busy=false;}
@@ -40,7 +41,7 @@ const reply=(res,status,body)=>{
 };
 const server=http.createServer(async(req,res)=>{
  if(req.method==='GET'&&req.url==='/status')
-  return reply(res,200,{owner,epoch,active,connected,heartbeatCount,lastError});
+  return reply(res,200,{owner,epoch,active,connected,heartbeatCount,lastError,lastErrorCode});
  if(req.method!=='POST'||req.url!=='/effect')return reply(res,404,{error:'unknown-endpoint'});
  if(req.headers['x-faraday-r18-lab']!==process.env.R18_LAB_TOKEN)
   return reply(res,401,{error:'lab-token-required'});
