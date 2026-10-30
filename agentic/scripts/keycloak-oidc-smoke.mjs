@@ -6,9 +6,10 @@ import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import {mkdirSync,writeFileSync,readFileSync,mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {fixture} from '../lib/authority-fixture.js';
+import {fixture,AGENT,ARGS} from '../lib/authority-fixture.js';
 import {newIdentity} from '../lib/authority.js';
-import {ExecutionJournal} from '../lib/pilot-receipts.js';
+import {ExecutionJournal,verifyReceipt} from '../lib/pilot-receipts.js';
+import {DurableSyntheticStore,createDurableSyntheticBackend} from '../lib/pilot-backend.js';
 import {createSecurePilotGateway} from '../lib/pilot-mcp.js';
 import {join,resolve} from 'node:path';
 import {PinnedOAuthResource} from '../lib/mcp-oauth-resource.js';
@@ -84,8 +85,12 @@ if(process.argv[2]==='prepare'){
  const work=mkdtempSync(join(root,'keycloak-mcp-gateway-'));
  const f=fixture(work),journal=new ExecutionJournal(join(work,'journal.sqlite'));
  const receiptKey=newIdentity(),backendKey=newIdentity();
+ const store=new DurableSyntheticStore(join(work,'backend.sqlite'));
+ const backend=createDurableSyntheticBackend({secret:f.backendSecret,store,attestationPrivatePem:backendKey.privatePem});
+ await new Promise(resolve=>backend.listen(0,'127.0.0.1',resolve));
+ const backendUrl='http://127.0.0.1:'+backend.address().port+'/internal/execute';
  const gateway=createSecurePilotGateway({gate:f.gate,
-  backendUrl:'http://127.0.0.1:18888/internal/execute',allowInsecureBackend:true,
+  backendUrl,allowInsecureBackend:true,oauthClientAgentBindings:{'faraday-r5':AGENT},
   backendSecret:f.backendSecret,journal,receiptPrivatePem:receiptKey.privatePem,
   backendPublicPem:backendKey.publicPem,oauthResource:resourceServer});
  try{
@@ -106,19 +111,40 @@ if(process.argv[2]==='prepare'){
   assert.equal(await ask(null,'tools/list',{}),401);
   assert.equal(await ask(good,'tools/call',{name:'pay_invoice',
    arguments:{amount_cents:100,currency:'EUR',recipient:'supplier_demo'}}),403);
+  const authorityHeaders={'x-faraday-capability':f.capability,
+   'x-faraday-proof':Buffer.from(JSON.stringify(f.proof)).toString('base64url')};
+  assert.equal(await ask(rogue,'tools/call',{name:'pay_invoice',arguments:ARGS},authorityHeaders),401);
+  assert.equal(await ask(good,'tools/call',{name:'pay_invoice',arguments:{...ARGS,amount_cents:100}},authorityHeaders),403);
+  assert.equal(store.count(),0);
+  assert.equal(await ask(good,'tools/call',{name:'pay_invoice',arguments:ARGS},authorityHeaders),200);
+  assert.equal(store.count(),1);
+  const id=f.proof.payload.jti;
+  const recorded=journal.get(id);
+  assert.equal(recorded?.state,'simulated');
+  assert.equal(verifyReceipt({publicPem:receiptKey.publicPem,backendPublicPem:backendKey.publicPem,
+   receipt:recorded.receipt}).backendVerified,true);
+  assert.equal(await ask(good,'tools/call',{name:'pay_invoice',arguments:ARGS},authorityHeaders),403);
+  assert.equal(store.count(),1);
+  // A valid provider token is insufficient to bypass the backend's independent credential.
+  const unauth=await fetch(backendUrl,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({})});
+  assert.equal(unauth.status,401);await unauth.body?.cancel();
  }finally{
   gateway.closeAllConnections();
   await new Promise(resolve=>gateway.close(resolve));
-  journal.close();f.close();rmSync(work,{recursive:true,force:true});
+  backend.closeAllConnections();await new Promise(resolve=>backend.close(resolve));
+  journal.close();store.close();f.close();rmSync(work,{recursive:true,force:true});
  }
  console.log(JSON.stringify({kind:'faraday-r5-real-https-oidc',result:'pass',
   controls:['TLS-validated-OIDC-discovery','provider-issued-RS256-token','pinned-JWKS',
     'exact-resource-audience','read-scope','execute-scope','authorized-client-only',
     'forged-signature-denied','local-revocation-denied',
     'real-http-mcp-list-allowed','rogue-client-gateway-denied','missing-bearer-gateway-denied',
-    'bearer-without-authority-proof-denied'],
+    'bearer-without-authority-proof-denied','provider-issued-jwt-signed-agent-proof-executes',
+    'independent-signed-backend-attestation','receipt-independently-verified',
+    'argument-tampering-denied','capability-replay-denied','direct-backend-without-credential-denied'],
   issuerType:'official-keycloak',clientCredentialsFrom:'runtime-generated-CI-fixture',
   limitations:['Keycloak development-mode only','test-only certificate and realm',
     'no production SSO, token exchange or agent delegation attestation',
-    'real HTTP read boundary tested, but no production gateway deployment or enterprise R2 acceptance']}));
+    'real MCP synthetic execution with issuer-signed machine identity and operator-mapped agent, not token exchange or user delegation',
+    'no production gateway deployment, Vault in this same runtime, or enterprise R2 acceptance']}));
 }else{throw Error('usage: keycloak-oidc-smoke.mjs prepare|verify ROOT');}
