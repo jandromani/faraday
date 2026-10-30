@@ -8,12 +8,67 @@ on:
 permissions:
   contents: read
 jobs:
+  mandatory-security-gate:
+    name: FARADAY mandatory Node Docker Vault and MCP
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Full Node regression, package audit and acceptance
+        working-directory: agentic
+        run: |
+          npm run test:all
+          npm run closure:test
+          npm run architecture:test
+      - name: Blocking Docker hostile-agent boundary and offline onboarding
+        working-directory: agentic
+        run: |
+          npm run assurance:ci
+          npm run onboard:smoke
+      - name: Install pinned official MCP client
+        run: npm install --prefix "${{ runner.temp }}/faraday-mandatory-mcp" --ignore-scripts --no-audit --no-fund @modelcontextprotocol/sdk@1.32.2 @modelcontextprotocol/server-filesystem@2.0.1
+      - name: Official MCP read-only end-to-end proxy
+        working-directory: agentic
+        env:
+          FARADAY_MCP_FIXTURES: ${{ runner.temp }}/faraday-mandatory-mcp
+        run: node scripts/real-mcp-client-smoke.mjs
+      - name: Start disposable Vault official server
+        run: >-
+          docker run -d --rm --name faraday-mandatory-vault
+          -p 127.0.0.1:18200:8200
+          -e VAULT_DEV_ROOT_TOKEN_ID=faraday-ci-dev-root-token-not-production
+          -e VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+          hashicorp/vault:1.20.4 server -dev
+      - name: Official Vault AppRole least privilege and revocation
+        working-directory: agentic
+        env:
+          FARADAY_TEST_VAULT_TOKEN: faraday-ci-dev-root-token-not-production
+          FARADAY_TEST_VAULT_URL: http://127.0.0.1:18200
+        run: node scripts/vault-dev-smoke.mjs
+      - name: Dispose of Vault
+        if: always()
+        run: docker rm -f faraday-mandatory-vault || true
   security:
+    # The existing GitHub master ruleset requires security (3.11/3.12/3.13).
+    # A skipped required check can be treated as green, so ALWAYS run the
+    # Python matrix and fail it if the shared mandatory gate did not succeed.
+    needs: mandatory-security-gate
+    if: always()
     runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
+      - name: Refuse merge if Node, Docker, Vault or MCP gate is not green
+        if: ${{ needs['mandatory-security-gate'].result != 'success' }}
+        run: |
+          echo "FARADAY mandatory security gate did not succeed"
+          exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
