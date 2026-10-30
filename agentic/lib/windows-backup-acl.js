@@ -3,6 +3,7 @@
  */
 import {spawnSync} from 'node:child_process';
 import {lstatSync} from 'node:fs';
+import {join} from 'node:path';
 
 const command=String.raw`
 $ErrorActionPreference = 'Stop'
@@ -45,7 +46,10 @@ function windowsAcl(path,mode) {
  if(typeof path!=='string'||!path||!['protect','verify'].includes(mode))throw Error('Invalid Windows backup ACL request');
  const stat=lstatSync(path);
  if(stat.isSymbolicLink())throw Error('Unsafe Windows backup reparse point');
- const child=spawnSync('powershell.exe',['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(command,'utf16le').toString('base64')],{
+ const windowsRoot=process.env.SystemRoot;
+ if(typeof windowsRoot!=='string'||!windowsRoot)throw Error('Windows backup ACL protection is not verified');
+ const powershell=join(windowsRoot,'System32','WindowsPowerShell','v1.0','powershell.exe');
+ const child=spawnSync(powershell,['-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from(command,'utf16le').toString('base64')],{
   encoding:'utf8',timeout:20000,maxBuffer:256*1024,windowsHide:true,
   env:{...process.env,FARADAY_ACL_PATH:path,FARADAY_ACL_MODE:mode}
  });
