@@ -56,10 +56,18 @@ jobs:
             --https-certificate-file=/opt/keycloak/conf/r5.crt \
             --https-certificate-key-file=/opt/keycloak/conf/r5.key \
             --http-enabled=false
+      - name: Start disposable Vault for the same protected operation
+        run: >-
+          docker run -d --rm --name faraday-r6-combined-vault
+          -p 127.0.0.1:18200:8200
+          -e VAULT_DEV_ROOT_TOKEN_ID=faraday-ci-dev-root-token-not-production
+          -e VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+          hashicorp/vault:1.20.4 server -dev
       - name: Check real issuer signatures, audience, scopes, client isolation and revocation
         working-directory: agentic
         env:
           NODE_EXTRA_CA_CERTS: ${{ runner.temp }}/faraday-r5-idp/identity.crt
+          FARADAY_TEST_VAULT_TOKEN: faraday-ci-dev-root-token-not-production
         run: node scripts/keycloak-oidc-smoke.mjs verify "$RUNNER_TEMP/faraday-r5-idp"
       - name: Diagnose failed Keycloak startup without exposing fixtures
         if: failure()
@@ -71,3 +79,6 @@ jobs:
       - name: Destroy disposable Keycloak
         if: always()
         run: docker rm -f faraday-r5-keycloak || true
+      - name: Destroy disposable Vault
+        if: always()
+        run: docker rm -f faraday-r6-combined-vault || true

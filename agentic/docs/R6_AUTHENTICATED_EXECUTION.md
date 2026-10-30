@@ -26,8 +26,12 @@ delegation or production SSO.
 ## Limits and future R6 gates
 
 The CI gateway/backend are both loopback and use test-created service
-credentials. The same workflow does **not** yet source its credential from
-Vault AppRole or prove network isolation between independent hosts. It
+credentials. The combined CI workflow now requires an official Vault dev-mode server,
+installs a restricted **read-only AppRole** credential in the gateway, checks
+that revocation prevents an operation before it is spent, and requires a fresh
+scoped token to resume. This claim is valid only for a successful real GitHub
+Actions run on the exact commit. The backend is still on loopback; there is
+no network isolation between independent hosts. It
 does not execute a real payment, nor an irreversible effect.
 
 Before R6 enterprise acceptance: combine independent Vault token issuance and
