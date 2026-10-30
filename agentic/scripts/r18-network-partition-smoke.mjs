@@ -47,26 +47,27 @@ async function count(){
 }
 const op=n=>'r18-separated-nodes-synthetic-effect-'+String(n).padStart(5,'0');
 const evidence={kind:'faraday-r18-real-network-partition',mode:'isolated-ci',network:'docker-bridge-disconnect'};
+let stage='initial-a';
 let detachedA=false,detachedB=false;
 try{
  const initial=await until(async()=>{const s=await status(a);return s.active&&s.epoch?s:null;});
  const sA=initial.value,initialEpoch=BigInt(sA.epoch);
- const sB=(await until(async()=>await status(b))).value;
+ stage='second-b';const sB=(await until(async()=>await status(b))).value;
  assert.equal(sB.active,false,'B must not co-own the first live lease');
  assert.equal((await effect(a,op(1))).http,200);
  assert.equal(await count(),1);
  // Real network partition: node A loses its only route to PostgreSQL, but
  // observer network is not interrupted, so the effect probe still reaches A.
  await docker('network','disconnect',network,a);detachedA=true;
- await until(async()=>{const s=await status(a);return s.lastError&&!s.active?s:null;});
- const takeover=await until(async()=>{const s=await status(b);
+ stage='a-partition';await until(async()=>{const s=await status(a);return s.lastError&&!s.active?s:null;});
+ stage='b-takeover';const takeover=await until(async()=>{const s=await status(b);
   return s.active&&BigInt(s.epoch)>initialEpoch?s:null;},12000);
  evidence.aToBMs=takeover.elapsedMs;
  assert.equal((await effect(a,op(2))).http,503,'partitioned A must not report a committed effect');
  assert.equal((await effect(b,op(3))).http,200);
  assert.equal(await count(),2);
  await docker('network','connect',network,a);detachedA=false;
- await until(async()=>{const s=await status(a);return s.connected&&!s.active?s:null;});
+ stage='a-healed';await until(async()=>{const s=await status(a);return s.connected&&!s.active?s:null;});
  const old=await effect(a,op(4));
  assert.equal(old.http,409,'healed A must be fenced by database even with old epoch');
  assert.equal(old.status,'fenced');
@@ -75,13 +76,13 @@ try{
  // its former fencing token, even while B thinks it was previously leader.
  const secondEpoch=BigInt(takeover.value.epoch);
  await docker('network','disconnect',network,b);detachedB=true;
- const back=await until(async()=>{const s=await status(a);
+ stage='a-retakeover';const back=await until(async()=>{const s=await status(a);
   return s.active&&BigInt(s.epoch)>secondEpoch?s:null;},12500);
  evidence.bToAMs=back.elapsedMs;
  assert.equal((await effect(b,op(5))).http,503,'partitioned B cannot acknowledge an effect');
  assert.equal((await effect(a,op(6))).http,200);
  await docker('network','connect',network,b);detachedB=false;
- await until(async()=>{const s=await status(b);return s.connected&&!s.active?s:null;});
+ stage='b-healed';await until(async()=>{const s=await status(b);return s.connected&&!s.active?s:null;});
  assert.equal((await effect(b,op(7))).http,409,'recovered B old lease must remain fenced');
  assert.equal(await count(),3,'three synthetic commits only across both outages');
  const retry=await effect(a,op(6));
@@ -99,7 +100,7 @@ try{
    'No third-party MCP client or actual outside payment in this campaign',
    'Do not interpret observed failover latency as production RTO'];
  console.log(JSON.stringify(evidence));
-}catch(e){console.error('R18 physical network isolation proof failed: '+String(e.message||'error'));process.exitCode=1;}
+}catch(e){console.error('R18 physical network isolation proof failed: '+stage+':'+String(e.message||'error'));process.exitCode=1;}
 finally{
  if(detachedA)await docker('network','connect',network,a).catch(()=>{});
  if(detachedB)await docker('network','connect',network,b).catch(()=>{});
