@@ -37,11 +37,21 @@ async function bounded(response,maxBytes=8192){
 }
 export function createSecurePilotGateway({gate,backendUrl,backendSecret,backendSecretProvider=null,journal,receiptPrivatePem,backendPublicPem,
       fetchFn=fetch,onEvent=()=>{},now=()=>Math.floor(Date.now()/1000),allowedOrigins=[],
-  approvalConfig=null,sentinel=null,budget=null,oauthResource=null,externalPolicy=null,allowInsecureBackend=false}){
+  approvalConfig=null,sentinel=null,budget=null,oauthResource=null,oauthClientAgentBindings=null,externalPolicy=null,allowInsecureBackend=false}){
   const endpoint=pilotBackendEndpoint(backendUrl,{allowInsecureBackend});
   if((backendSecretProvider===null?(typeof backendSecret!=='string'||backendSecret.length<32):(typeof backendSecretProvider!=='function'||backendSecret!==undefined))||!gate||!journal||typeof journal.reserve!=='function'||!receiptPrivatePem||!backendPublicPem)throw Error('Secure Pilot requires gate, journal, gateway/backend signing identities and service credential');
   if(approvalConfig && (!approvalConfig.approverKeys||!Number.isSafeInteger(approvalConfig.quorum)||approvalConfig.quorum<1))throw Error('Invalid approval configuration');
   const evaluateExternalPolicy=externalPolicy===null?null:createFailClosedGatewayPolicyPort(externalPolicy);
+  // Optional machine-to-agent mapping is restricted to operator provisioned client IDs.
+  // A valid OIDC access token NEVER substitutes for a signed FARADAY capability/proof.
+  if(oauthClientAgentBindings!==null&&(!oauthResource||typeof oauthClientAgentBindings!=='object'||Array.isArray(oauthClientAgentBindings)||
+    Object.keys(oauthClientAgentBindings).length<1||Object.keys(oauthClientAgentBindings).length>16||
+    Object.entries(oauthClientAgentBindings).some(([client,agent])=>
+      !/^[A-Za-z0-9_.-]{3,128}$/.test(client)||typeof agent!=='string'||!/^faraday:\/\/[A-Za-z0-9/_-]{3,160}$/.test(agent))))throw Error('Invalid OAuth client-agent binding');
+  const identityMatches=(identity,agent)=>Boolean(identity&&(
+    identity.subject===agent||oauthClientAgentBindings!==null&&
+    Object.hasOwn(oauthClientAgentBindings,identity.clientId)&&
+    oauthClientAgentBindings[identity.clientId]===agent));
   return http.createServer(async(req,res)=>{
     if(req.url==='/healthz'&&req.method==='GET')return json(res,200,{service:'faraday-secure-pilot',status:'ok'});
     if(oauthResource && req.method==='GET' && ['/.well-known/oauth-protected-resource/mcp','/.well-known/oauth-protected-resource'].includes(req.url)){
@@ -121,9 +131,9 @@ export function createSecurePilotGateway({gate,backendUrl,backendSecret,backendS
           action:proof.payload.action,args:msg.params.arguments,now:now(),excludedPublicPem:gate.registry[proof.payload.agent]});
         approvalEvidence={approvalDigest:approval.approvalDigest,bundle};
       }
-          if(oauthResource&&oauthIdentity.subject!==proof.payload?.agent)throw new AuthorityError('oauth-agent-mismatch');
+          if(oauthResource&&!identityMatches(oauthIdentity,proof.payload?.agent))throw new AuthorityError('oauth-agent-mismatch');
       auth=gate.authorize({capability,proof});
-      if(oauthResource && oauthIdentity.subject!==auth.agent)throw new AuthorityError('oauth-agent-mismatch');
+      if(oauthResource && !identityMatches(oauthIdentity,auth.agent))throw new AuthorityError('oauth-agent-mismatch');
       if(auth.tool!=='pay_invoice'||auth.resource!=='invoice:demo'||auth.action!=='pay')throw new AuthorityError('invalid-scope');
       // Consume the quota before any backend side effect; failures burn this capability (fail-closed).
       budget?.consume(auth.agent);
