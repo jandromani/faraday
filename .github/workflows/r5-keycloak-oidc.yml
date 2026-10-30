@@ -1,0 +1,73 @@
+name: FARADAY R5 Real HTTPS Keycloak OIDC
+on:
+  pull_request:
+    paths:
+      - 'agentic/lib/mcp-oauth-resource.js'
+      - 'agentic/tests/keycloak-token-profile.test.js'
+      - 'agentic/scripts/keycloak-oidc-smoke.mjs'
+      - '.github/workflows/r5-keycloak-oidc.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'agentic/lib/mcp-oauth-resource.js'
+      - 'agentic/tests/keycloak-token-profile.test.js'
+      - 'agentic/scripts/keycloak-oidc-smoke.mjs'
+      - '.github/workflows/r5-keycloak-oidc.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  real-keycloak:
+    name: Official HTTPS Keycloak OIDC negative campaign
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Create ephemeral realm, client secrets and test-only TLS certificate
+        working-directory: agentic
+        run: |
+          set -eu
+          root="$RUNNER_TEMP/faraday-r5-idp"
+          mkdir -p "$root"
+          openssl req -newkey rsa:2048 -nodes -x509 -days 1 \
+            -subj "/CN=faraday-r5-loopback" \
+            -addext "subjectAltName=IP:127.0.0.1,DNS:localhost" \
+            -keyout "$root/identity.key" -out "$root/identity.crt" >/dev/null 2>&1
+          chmod 755 "$root"
+          chmod 644 "$root/identity.key" "$root/identity.crt"
+          node scripts/keycloak-oidc-smoke.mjs prepare "$root"
+      - name: Start official Keycloak with HTTPS on loopback only
+        run: |
+          docker run -d --name faraday-r5-keycloak --memory 2g \
+            -p 127.0.0.1:18443:8443 \
+            -v "$RUNNER_TEMP/faraday-r5-idp/import:/opt/keycloak/data/import:ro" \
+            -v "$RUNNER_TEMP/faraday-r5-idp/identity.key:/opt/keycloak/conf/r5.key:ro" \
+            -v "$RUNNER_TEMP/faraday-r5-idp/identity.crt:/opt/keycloak/conf/r5.crt:ro" \
+            quay.io/keycloak/keycloak:26.8.1 start-dev --import-realm \
+            --hostname=https://127.0.0.1:18443 --https-port=8443 \
+            --https-certificate-file=/opt/keycloak/conf/r5.crt \
+            --https-certificate-key-file=/opt/keycloak/conf/r5.key \
+            --http-enabled=false
+      - name: Check real issuer signatures, audience, scopes, client isolation and revocation
+        working-directory: agentic
+        env:
+          NODE_EXTRA_CA_CERTS: ${{ runner.temp }}/faraday-r5-idp/identity.crt
+        run: node scripts/keycloak-oidc-smoke.mjs verify "$RUNNER_TEMP/faraday-r5-idp"
+      - name: Diagnose failed Keycloak startup without exposing fixtures
+        if: failure()
+        run: |
+          docker inspect -f 'Keycloak state={{.State.Status}} exit={{.State.ExitCode}}' faraday-r5-keycloak || true
+          docker logs faraday-r5-keycloak 2>&1 \
+            | grep -Ei 'error|exception|failed|permission denied|unrecognized option|invalid option|WARN' \
+            | tail -n 30 || true
+      - name: Destroy disposable Keycloak
+        if: always()
+        run: docker rm -f faraday-r5-keycloak || true
