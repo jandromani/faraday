@@ -5,9 +5,6 @@ on:
       - 'agentic/**'
       - '.github/workflows/boundary-deployment.yml'
   pull_request:
-    paths:
-      - 'agentic/**'
-      - '.github/workflows/boundary-deployment.yml'
 jobs:
   kv2:
     name: Vault API mock + deployment assertions / ${{ matrix.os }} / Node ${{ matrix.node }}
