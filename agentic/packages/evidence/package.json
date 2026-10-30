@@ -1,6 +1,6 @@
 {
   "name": "@faraday/evidence",
-  "version": "0.99.7",
+  "version": "0.99.8",
   "type": "module",
   "private": true,
   "description": "FARADAY Evidence API migration boundary (workspace internal, not independently deployable)",
