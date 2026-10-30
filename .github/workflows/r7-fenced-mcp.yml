@@ -8,7 +8,7 @@ on:
       - 'agentic/scripts/r7-fenced-mcp-smoke.mjs'
       - '.github/workflows/r7-fenced-mcp.yml'
   push:
-    branches: [master]
+    branches: [master, 'r7/**']
     paths:
       - 'agentic/lib/postgres-fenced-store.js'
       - 'agentic/lib/pilot-backend.js'
