@@ -8,6 +8,16 @@ on:
 permissions:
   contents: read
 jobs:
+  mandatory-keycloak:
+    name: FARADAY R11 required Keycloak Vault and Authority
+    uses: ./.github/workflows/r5-keycloak-oidc.yml
+    permissions:
+      contents: read
+  mandatory-postgres:
+    name: FARADAY R11 required PostgreSQL fenced MCP
+    uses: ./.github/workflows/r7-fenced-mcp.yml
+    permissions:
+      contents: read
   mandatory-security-gate:
     name: FARADAY mandatory Node Docker Vault and MCP
     runs-on: ubuntu-latest
@@ -57,7 +67,7 @@ jobs:
     # The existing GitHub master ruleset requires security (3.11/3.12/3.13).
     # A skipped required check can be treated as green, so ALWAYS run the
     # Python matrix and fail it if the shared mandatory gate did not succeed.
-    needs: mandatory-security-gate
+    needs: [mandatory-security-gate, mandatory-keycloak, mandatory-postgres]
     if: always()
     runs-on: ubuntu-latest
     strategy:
@@ -65,9 +75,9 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - name: Refuse merge if Node, Docker, Vault or MCP gate is not green
-        if: ${{ needs['mandatory-security-gate'].result != 'success' }}
+        if: ${{ needs['mandatory-security-gate'].result != 'success' || needs['mandatory-keycloak'].result != 'success' || needs['mandatory-postgres'].result != 'success' }}
         run: |
-          echo "FARADAY mandatory security gate did not succeed"
+          echo "FARADAY Node / Vault / Keycloak / Postgres mandatory security gate did not succeed"
           exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
