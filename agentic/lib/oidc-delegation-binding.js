@@ -15,7 +15,7 @@ const scopeOK=x=>x&&typeof x==='object'&&Object.keys(x).sort().join('|')===
 export const oidcPrincipalKey=({issuer,subject})=>{
  if(typeof issuer!=='string'||!issuer.startsWith('https://')||
   typeof subject!=='string'||subject.length<3||subject.length>256)fail();
- return 'oidc:'+digest({issuer,subject});
+ return 'oidc:'+Buffer.from(digest({issuer,subject}),'base64url').toString('hex');
 };
 export function createVerifiedOidcDelegation({
  oauthResource,issuerPrivatePem,issuerPublicPem,allowedUserClients,
