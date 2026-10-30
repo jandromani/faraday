@@ -33,11 +33,13 @@ BEGIN
  END LOOP;
 END$$;
 -- Executor still has no privilege to call claim_lease.
+-- Retire pre-R13 operator promotion: it creates indefinite legacy epochs.
+REVOKE EXECUTE ON FUNCTION faraday_secure.promote(text,text) FROM faraday_controller;
 REVOKE ALL ON FUNCTION faraday_secure.claim_lease(text,text,integer) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION faraday_secure.claim_lease(text,text,integer) TO faraday_controller;
 -- Rebind effects to active, UNEXPIRED lease; no stale process can keep writing.
--- Legacy rows without a TTL are allowed solely for compatibility with R12
--- operator-initiated fencing; R13 active deployments MUST use claim_lease.
+-- R13 intentionally rejects legacy rows with NULL lease expiry. Any existing
+-- leader must reclaim through claim_lease before an effect is accepted.
 CREATE OR REPLACE FUNCTION faraday_secure.apply_effect(
  p_scope text,p_owner text,p_epoch bigint,p_operation text,p_digest text
 ) RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
@@ -48,7 +50,7 @@ BEGIN
   OR p_digest !~ '^[a-f0-9]{64}$' THEN RETURN 'invalid'; END IF;
  SELECT epoch INTO active_epoch FROM public.faraday_r5_leases
  WHERE scope=p_scope AND owner=p_owner AND epoch=p_epoch
-   AND (lease_until IS NULL OR lease_until>clock_timestamp())
+   AND lease_until IS NOT NULL AND lease_until>clock_timestamp()
  FOR UPDATE;
  IF NOT FOUND THEN RETURN 'fenced'; END IF;
  INSERT INTO public.faraday_r5_effects(scope,operation_id,payload_hash,epoch)
