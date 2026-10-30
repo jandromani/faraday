@@ -6,10 +6,11 @@ import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import {mkdirSync,writeFileSync,readFileSync,mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {fixture,AGENT,ARGS} from '../lib/authority-fixture.js';
-import {newIdentity} from '../lib/authority.js';
+import {fixture,AGENT,ARGS,TOOL,RESOURCE,ACTION} from '../lib/authority-fixture.js';
+import {newIdentity,createIntent,createExecution} from '../lib/authority.js';
 import {ExecutionJournal,verifyReceipt} from '../lib/pilot-receipts.js';
 import {DurableSyntheticStore,createDurableSyntheticBackend} from '../lib/pilot-backend.js';
+import {createVaultKv2SecretProvider} from '../lib/vault-kv2-secret-provider.js';
 import {createSecurePilotGateway} from '../lib/pilot-mcp.js';
 import {join,resolve} from 'node:path';
 import {PinnedOAuthResource} from '../lib/mcp-oauth-resource.js';
@@ -17,6 +18,52 @@ const root=resolve(process.argv[3]||'.');
 const issuer='https://127.0.0.1:18443/realms/faraday-r5';
 const resource='https://gateway.example.test/mcp';
 const scope='mcp:tools:read mcp:tools:execute';
+/** Official Vault dev bootstrap; only the scoped AppRole token is passed to the gateway. */
+async function prepareScopedVault({credential,dir}){
+ const baseUrl='http://127.0.0.1:18200',rootToken=process.env.FARADAY_TEST_VAULT_TOKEN;
+ assert.ok(typeof rootToken==='string'&&rootToken.length>=12,'R6 requires disposable Vault bootstrap');
+ const api=async(path,{method='GET',token=rootToken,body,expect=[200,204]}={})=>{
+  const r=await fetch(baseUrl+path,{method,headers:{'x-vault-token':token,
+   'content-type':'application/json',accept:'application/json'},
+   body:body===undefined?undefined:JSON.stringify(body),redirect:'error',
+   signal:AbortSignal.timeout(5000)});
+  assert.ok(expect.includes(r.status),'Vault bootstrap/revocation failed');
+  if(r.status===204){await r.body?.cancel();return {};}
+  return r.json();
+ };
+ let ready=false;
+ for(let i=0;i<35;i++){
+  try{const r=await fetch(baseUrl+'/v1/sys/health',{signal:AbortSignal.timeout(1500)});
+   if(r.ok){ready=true;await r.body?.cancel();break;}}catch{}
+  await new Promise(resolve=>setTimeout(resolve,300));
+ }
+ assert.ok(ready,'Vault not ready for combined R6 scenario');
+ await api('/v1/sys/policies/acl/r6-mcp-gateway',{method:'PUT',
+  body:{policy:'path "secret/data/gateway/backend" { capabilities = ["read"] }'}});
+ await api('/v1/sys/auth/approle',{method:'POST',body:{type:'approle'}});
+ await api('/v1/auth/approle/role/r6-mcp-gateway',{method:'POST',
+  body:{token_policies:['r6-mcp-gateway'],token_no_default_policy:true,
+   token_ttl:'90s',token_max_ttl:'180s',secret_id_num_uses:1,token_num_uses:0}});
+ const roleId=(await api('/v1/auth/approle/role/r6-mcp-gateway/role-id')).data.role_id;
+ assert.ok(typeof roleId==='string'&&roleId.length>10);
+ await api('/v1/secret/data/gateway/backend',{method:'POST',
+  body:{data:{backend_credential:credential}}});
+ const tokenFile=join(dir,'vault-scoped-token'),scoped=[];
+ const renew=async()=>{
+  const secretId=(await api('/v1/auth/approle/role/r6-mcp-gateway/secret-id',{method:'POST',body:{}})).data.secret_id;
+  const login=await api('/v1/auth/approle/login',{method:'POST',body:{role_id:roleId,secret_id:secretId}});
+  const token=login.auth.client_token;
+  assert.ok(typeof token==='string'&&token.length>10&&token!==rootToken);
+  scoped.push(token);writeFileSync(tokenFile,token,{mode:0o600});
+ };
+ await renew();
+ const provider=createVaultKv2SecretProvider({baseUrl,mount:'secret',
+  secretPath:'gateway/backend',tokenFile,allowLoopbackHttp:true});
+ assert.equal(await provider(),credential);
+ await api('/v1/secret/data/other/backend',{token:scoped.at(-1),expect:[403]});
+ return {provider,renew,revoke:()=>api('/v1/auth/token/revoke',{method:'POST',
+    body:{token:scoped.at(-1)}})};
+}
 const fmt=secret=>({
  clientId:secret.id,enabled:true,protocol:'openid-connect',publicClient:false,
  clientAuthenticatorType:'client-secret',secret:secret.value,serviceAccountsEnabled:true,
@@ -85,13 +132,14 @@ if(process.argv[2]==='prepare'){
  const work=mkdtempSync(join(root,'keycloak-mcp-gateway-'));
  const f=fixture(work),journal=new ExecutionJournal(join(work,'journal.sqlite'));
  const receiptKey=newIdentity(),backendKey=newIdentity();
+ const approle=await prepareScopedVault({credential:f.backendSecret,dir:work});
  const store=new DurableSyntheticStore(join(work,'backend.sqlite'));
  const backend=createDurableSyntheticBackend({secret:f.backendSecret,store,attestationPrivatePem:backendKey.privatePem});
  await new Promise(resolve=>backend.listen(0,'127.0.0.1',resolve));
  const backendUrl='http://127.0.0.1:'+backend.address().port+'/internal/execute';
  const gateway=createSecurePilotGateway({gate:f.gate,
   backendUrl,allowInsecureBackend:true,oauthClientAgentBindings:{'faraday-r5':AGENT},
-  backendSecret:f.backendSecret,journal,receiptPrivatePem:receiptKey.privatePem,
+  backendSecretProvider:approle.provider,journal,receiptPrivatePem:receiptKey.privatePem,
   backendPublicPem:backendKey.publicPem,oauthResource:resourceServer});
  try{
   await new Promise(resolve=>gateway.listen(0,'127.0.0.1',resolve));
@@ -125,6 +173,21 @@ if(process.argv[2]==='prepare'){
    receipt:recorded.receipt}).backendVerified,true);
   assert.equal(await ask(good,'tools/call',{name:'pay_invoice',arguments:ARGS},authorityHeaders),403);
   assert.equal(store.count(),1);
+  // Revoke the live AppRole before Authority spends another capability.
+  const timestamp=Math.floor(Date.now()/1000);
+  const intent=createIntent({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS,
+   agentPrivatePem:f.agent.privatePem,now:timestamp});
+  const nextCapability=f.iss.issue(intent);
+  const nextProof=createExecution({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,args:ARGS,
+   capability:nextCapability,agentPrivatePem:f.agent.privatePem,now:timestamp});
+  const renewalHeaders={'x-faraday-capability':nextCapability,
+   'x-faraday-proof':Buffer.from(JSON.stringify(nextProof)).toString('base64url')};
+  await approle.revoke();
+  assert.equal(await ask(good,'tools/call',{name:'pay_invoice',arguments:ARGS},renewalHeaders),503);
+  assert.equal(store.count(),1,'revoked Vault token must prevent backend effect');
+  await approle.renew();
+  assert.equal(await ask(good,'tools/call',{name:'pay_invoice',arguments:ARGS},renewalHeaders),200);
+  assert.equal(store.count(),2);
   // A valid provider token is insufficient to bypass the backend's independent credential.
   const unauth=await fetch(backendUrl,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({})});
   assert.equal(unauth.status,401);await unauth.body?.cancel();
@@ -141,10 +204,12 @@ if(process.argv[2]==='prepare'){
     'real-http-mcp-list-allowed','rogue-client-gateway-denied','missing-bearer-gateway-denied',
     'bearer-without-authority-proof-denied','provider-issued-jwt-signed-agent-proof-executes',
     'independent-signed-backend-attestation','receipt-independently-verified',
-    'argument-tampering-denied','capability-replay-denied','direct-backend-without-credential-denied'],
+    'argument-tampering-denied','capability-replay-denied','direct-backend-without-credential-denied',
+    'vault-scoped-approle-secret-in-gateway','deny-other-vault-path',
+    'vault-token-revocation-before-effect','scoped-token-reissue-recovers'],
   issuerType:'official-keycloak',clientCredentialsFrom:'runtime-generated-CI-fixture',
   limitations:['Keycloak development-mode only','test-only certificate and realm',
     'no production SSO, token exchange or agent delegation attestation',
     'real MCP synthetic execution with issuer-signed machine identity and operator-mapped agent, not token exchange or user delegation',
-    'no production gateway deployment, Vault in this same runtime, or enterprise R2 acceptance']}));
+    'no production gateway deployment or enterprise R2 acceptance']}));
 }else{throw Error('usage: keycloak-oidc-smoke.mjs prepare|verify ROOT');}
