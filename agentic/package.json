@@ -1,6 +1,6 @@
 {
   "name": "@faraday/agentic",
-  "version": "0.99.7",
+  "version": "0.99.8",
   "private": true,
   "description": "FARADAY signed journal recovery, Vault KVv2 and isolated MCP trust-boundary pilot",
   "type": "module",
