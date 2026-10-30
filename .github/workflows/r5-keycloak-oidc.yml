@@ -14,11 +14,12 @@ on:
       - 'agentic/scripts/keycloak-oidc-smoke.mjs'
       - '.github/workflows/r5-keycloak-oidc.yml'
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: faraday-r11-keycloak-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
 jobs:
   real-keycloak:
     name: Official HTTPS Keycloak OIDC negative campaign
