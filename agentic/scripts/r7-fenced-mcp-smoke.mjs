@@ -120,8 +120,27 @@ try{
   'content-type':'application/json'},body:JSON.stringify(privilegedBody)});
  assert.equal(noCredential.status,401);await noCredential.body?.cancel();
  assert.equal(await db.count(),3);
+ // R8 fault injection: the shared Postgres goes temporarily unavailable.
+ // A pending protected call MUST NOT report a success or auto-retry on recovery.
+ let paused=false,storageFailureMs=0,recoveryMs=0;
+ try{
+  await run('docker',['pause',container]);paused=true;
+  const interrupted=fresh(b),began=performance.now();
+  const denied=await request(gb,interrupted);
+  storageFailureMs=Math.round(performance.now()-began);
+  assert.equal(denied.status,503,'database outage must fail closed and not claim a committed effect');
+  assert.equal(jB.get(id(interrupted.capability))?.state,'upstream-uncertain');
+  await run('docker',['unpause',container]);paused=false;
+  const restoring=performance.now();
+  assert.equal(await db.count(),3,'an uncertain outcome must not auto-retry after DB recovery');
+  recoveryMs=Math.round(performance.now()-restoring);
+  const authorizedAfterRecovery=await request(gb,fresh(b));
+  assert.equal(authorizedAfterRecovery.status,200,'a fresh authorized operation should work after DB recovery');
+  assert.equal(await db.count(),4);
+ }finally{if(paused)await run('docker',['unpause',container]).catch(()=>{});}
  console.log(JSON.stringify({kind:'faraday-r7-actual-mcp-postgres',result:'pass',
-  measured:{syntheticCommittedEffects:3,concurrentBackendRetries:8,firstCommits:1,
+  measured:{syntheticCommittedEffects:4,concurrentBackendRetries:8,firstCommits:1,
+   storageOutageRejected:true,storageFailureMs,recoveryMs,unknownOutcomeNotRetried:true,
    fencedOldGateway:true,verifiedReceipts:2,authorizedFailover:'operator-triggered'},
   limitations:['No automatic failover','No external bank/payment side effect','No multi-region HA',
    'backend psql via Docker is CI reference driver only','PostgreSQL single point of failure']}));
