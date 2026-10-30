@@ -30,24 +30,19 @@ try{
  run(process.execPath,[cli,'init','--root',work]);
  const before=readFileSync(conf,'utf8');
  let automaticInstall;
- if(process.platform==='win32'){
-  run(process.execPath,[cli,'install','--config',conf,'--server','fixture','--dry-run']);
-  if(readFileSync(conf,'utf8')!==before||existsSync(join(work,'.faraday','targets')))throw Error('Dry-run changed the config or created a backup');
-  const blocked=spawnSync(process.execPath,[cli,'install','--config',conf,'--server','fixture'],{cwd:work,encoding:'utf8',timeout:60000});
-  if(blocked.status!==1||!blocked.stderr.includes('[FARADAY] Command failed.'))throw Error('Windows install was not rejected by the CLI');
-  if(readFileSync(conf,'utf8')!==before||existsSync(join(work,'.faraday','targets')))throw Error('Blocked install changed the config or created a backup');
-  automaticInstall='blocked-unverified-acl';
- }else{
-  run(process.execPath,[cli,'install','--config',conf,'--server','fixture']);
-  if(readFileSync(conf,'utf8')===before)throw Error('Install did not wrap the config');
-  run(process.execPath,[cli,'uninstall','--config',conf,'--server','fixture']);
-  if(JSON.stringify(JSON.parse(readFileSync(conf,'utf8')))!==JSON.stringify(orig))throw Error('Uninstall did not restore exact server entry');
-  automaticInstall='installed-and-rolled-back';
- }
+ run(process.execPath,[cli,'install','--config',conf,'--server','fixture','--dry-run']);
+ if(readFileSync(conf,'utf8')!==before||existsSync(join(work,'.faraday','targets')))
+  throw Error('Dry-run changed config or created backup');
+ run(process.execPath,[cli,'install','--config',conf,'--server','fixture']);
+ if(readFileSync(conf,'utf8')===before)throw Error('Install did not wrap config');
+ run(process.execPath,[cli,'uninstall','--config',conf,'--server','fixture']);
+ if(JSON.stringify(JSON.parse(readFileSync(conf,'utf8')))!==JSON.stringify(orig))
+  throw Error('Uninstall did not restore original server entry');
+ automaticInstall='installed-and-rolled-back';
  const check=JSON.parse(run(process.execPath,[cli,'doctor','--root',work,'--json']));
  if(!check.ready)throw Error('Onboarding doctor did not confirm readiness');
  console.log(JSON.stringify({kind:'faraday-cold-install',result:'pass',platform:process.platform,
    node:process.versions.node,elapsedMs:Math.round(performance.now()-time),
-  automaticInstall,source:process.platform==='win32'?'npm pack -> npm install --offline -> init -> dry-run -> blocked install -> doctor':'npm pack -> npm install --offline -> init -> install -> uninstall -> doctor',
+  automaticInstall,source:'npm pack -> npm install --offline -> init -> dry-run -> install -> uninstall -> doctor',
    scope:'local test workspace only; no production MCP client'},null,2));
 }finally{rmSync(root,{recursive:true,force:true});}
