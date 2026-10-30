@@ -95,7 +95,8 @@
     "./r2-evidence-gate": "./lib/r2-evidence-gate.js",
     "./r3-runtime-gate": "./lib/r3-runtime-gate.js",
     "./r4-adapter-contract": "./lib/r4-adapter-contract.js",
-    "./postgres-fencing-protocol": "./lib/postgres-fencing-protocol.js"
+    "./postgres-fencing-protocol": "./lib/postgres-fencing-protocol.js",
+    "./postgres-fenced-store": "./lib/postgres-fenced-store.js"
   },
   "files": [
     "bin",
