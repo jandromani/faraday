@@ -22,13 +22,12 @@ test('500 deterministic hostile malformed requests never touch PostgreSQL',async
   else if(which===3)x.operationId=v;
   else if(which===4)x.fenceOwner=v;
   else if(which===5)x.fenceEpoch=v;
-  else if(which===6)x.args.amount_cents=v;
+  else if(which===6)x.args.amount_cents=(Number.isSafeInteger(v)&&v>=1&&v<=20000)?20001:v;
   else if(which===7)x.args.currency=v;
   else if(which===8)x.args.recipient=v;
   else x.args={...x.args,untrusted:v};
-  // A mutated value can occasionally equal a valid field. Always force
-  // a second invalid predicate when needed to avoid false test positives.
-  x.args={...x.args,additional_untrusted_field:'must-never-be-accepted'};
+  // Each mutation must be independently rejected, without a shared invalid
+  // field masking a missing per-field validation.
   const result=await store.apply(x);
   assert.equal(result.http,403,'malformed operation must fail closed');
   count++;
