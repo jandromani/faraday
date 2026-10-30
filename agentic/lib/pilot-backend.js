@@ -1,5 +1,6 @@
 /** Durable synthetic backend: never performs transfers or real external actions. */
 import http from 'node:http';
+import {createHash,timingSafeEqual} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
 import {mkdirSync,lstatSync,chmodSync} from 'node:fs';
 import {dirname,resolve} from 'node:path';
@@ -37,28 +38,49 @@ export class DurableSyntheticStore {
   count(){return this.db.prepare('SELECT count(*) AS n FROM synthetic_actions').get().n;}
   close(){this.db.close();}
 }
-export function createDurableSyntheticBackend({secret,secretProvider=null,store,attestationPrivatePem}){
-  if(((!secretProvider && (typeof secret!=='string'||secret.length<32)) || (secretProvider && typeof secretProvider!=='function'))||!store||typeof store.apply!=='function'||!attestationPrivatePem)throw Error('Synthetic backend requires secret, durable store and independent signing key');
+export function createDurableSyntheticBackend({secret,secretProvider=null,store,attestationPrivatePem,gatewaySecrets=null}){
+  const fenced=gatewaySecrets!==null;
+  if(fenced && (secret!==undefined||secretProvider!==null||!store?.fenced||
+    typeof gatewaySecrets!=='object'||Array.isArray(gatewaySecrets)||
+    Object.keys(gatewaySecrets).length<2||Object.keys(gatewaySecrets).length>10||
+    Object.entries(gatewaySecrets).some(([owner,token])=>
+      !/^gateway-[a-z0-9-]{1,30}$/.test(owner)||typeof token!=='string'||token.length<32||token.length>256)||
+    new Set(Object.values(gatewaySecrets)).size!==Object.values(gatewaySecrets).length))
+    throw Error('Invalid fenced gateway credentials');
+  if((!fenced&&((!secretProvider && (typeof secret!=='string'||secret.length<32)) || (secretProvider && typeof secretProvider!=='function')))||
+    !store||typeof store.apply!=='function'||!attestationPrivatePem)throw Error('Synthetic backend requires secret, durable store and independent signing key');
   return http.createServer(async(req,res)=>{
     if(req.url==='/healthz'&&req.method==='GET')return respond(res,200,{status:'ok'});
     if(!['/internal/execute','/internal/status'].includes(req.url)||req.method!=='POST')return respond(res,404,{error:'not-found'});
-    let currentSecret;
-    try{currentSecret=secretProvider?await secretProvider():secret;}catch{return respond(res,503,{error:'credential-unavailable'});}
-    if(typeof currentSecret!=='string'||currentSecret.length<32)return respond(res,503,{error:'credential-unavailable'});
-    if(req.headers.authorization!==`Bearer ${currentSecret}`)return respond(res,401,{error:'unauthorized'});
+    let authenticatedOwner=null;
+    if(fenced){
+      const header=req.headers.authorization;
+      if(typeof header!=='string'||!/^Bearer [A-Za-z0-9._~+-]{32,256}$/.test(header))return respond(res,401,{error:'unauthorized'});
+      const presented=createHash('sha256').update(header.slice(7)).digest();
+      for(const [owner,token] of Object.entries(gatewaySecrets)){
+        if(timingSafeEqual(presented,createHash('sha256').update(token).digest()))authenticatedOwner=owner;
+      }
+      if(authenticatedOwner===null)return respond(res,401,{error:'unauthorized'});
+    }else{
+      let currentSecret;
+      try{currentSecret=secretProvider?await secretProvider():secret;}catch{return respond(res,503,{error:'credential-unavailable'});}
+      if(typeof currentSecret!=='string'||currentSecret.length<32)return respond(res,503,{error:'credential-unavailable'});
+      if(req.headers.authorization!==`Bearer ${currentSecret}`)return respond(res,401,{error:'unauthorized'});
+    }
     try{
       const body=await readJson(req);
       if(req.url==='/internal/status'){
         if(!body||Object.keys(body).sort().join('|')!=='operationId|requestHash')return respond(res,400,{error:'invalid-status-request'});
         if(typeof body.operationId!=='string'||typeof body.requestHash!=='string')return respond(res,400,{error:'invalid-status-request'});
-        const record=store.get(body.operationId);
+        const record=await store.get(body.operationId);
         if(!record||record.request_hash!==body.requestHash||record.status!=='simulated')return respond(res,404,{error:'operation-not-found'});
         const attestation=signBackendAttestation({privatePem:attestationPrivatePem,claims:{version:1,operationId:body.operationId,requestHash:record.request_hash,status:'simulated',recordedAt:record.occurred_at}});
         return respond(res,200,{status:'simulated',operationId:body.operationId,requestHash:record.request_hash,attestation});
       }
-      const result=store.apply(body);
+      if(fenced && body.fenceOwner!==authenticatedOwner)return respond(res,403,{error:'gateway-owner-mismatch'});
+      const result=await store.apply(body);
       if(result.http!==200)return respond(res,result.http,result);
-      const record=store.get(result.operationId);
+      const record=await store.get(result.operationId);
       const attestation=signBackendAttestation({privatePem:attestationPrivatePem,claims:{version:1,operationId:result.operationId,requestHash:result.requestHash,status:'simulated',recordedAt:record.occurred_at}});
       return respond(res,result.http,{...result,attestation});
     }
