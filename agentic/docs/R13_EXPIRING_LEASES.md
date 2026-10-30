@@ -26,3 +26,8 @@ Operational safeguards: each process should use a unique random instance
 owner identifier; do not reuse a defeated instance's old credentials. Both
 clock and lease expiration are calculated within PostgreSQL rather than
 trusting host clocks. Migrations are administrator-only.
+
+**Mandatory R13 hardening:** legacy promotion without a lease is revoked
+for the controller role. Effects require a non-NULL, unexpired lease.
+An existing R12 epoch without a TTL must be migrated through `claim_lease`
+before a protected write can continue; there is no compatibility bypass.

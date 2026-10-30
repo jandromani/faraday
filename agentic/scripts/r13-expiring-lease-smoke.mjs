@@ -43,6 +43,8 @@ try{
  await assert.rejects(execute.query(
   "SELECT faraday_secure.claim_lease('invoice:demo','gateway-x',1000)"),/permission denied/i);
  await assert.rejects(control.query(
+  "SELECT faraday_secure.promote('invoice:demo','gateway-legacy')"),/permission denied/i);
+ await assert.rejects(control.query(
   "SELECT faraday_secure.apply_effect('invoice:demo','gateway-a',1,'r13-expiring-lease-operation-00007',repeat('a',64))"),/permission denied/i);
  await sleep(850);
  assert.equal((await store.apply({...body,operationId:id(5),fenceOwner:owner,fenceEpoch:epoch})).status,'fenced');
