@@ -16,11 +16,12 @@ on:
       - 'agentic/scripts/r7-fenced-mcp-smoke.mjs'
       - '.github/workflows/r7-fenced-mcp.yml'
   workflow_dispatch:
+  workflow_call:
 permissions:
   contents: read
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: faraday-r11-postgres-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
 jobs:
   fenced-mcp:
     name: Real protected MCP / PostgreSQL fenced backend
