@@ -309,6 +309,6 @@ if(process.argv[2]==='prepare'){
   issuerType:'official-keycloak',clientCredentialsFrom:'runtime-generated-CI-fixture',
   limitations:['Keycloak development-mode only','test-only certificate and realm',
     'user test uses lab-only password grant, NOT production OIDC authorization code / PKCE or token exchange',
-    'real MCP synthetic execution with issuer-signed machine identity and operator-mapped agent, not token exchange or user delegation',
+    'machine-to-agent mapping and user-to-agent signed delegation both tested in synthetic MCP, NOT OAuth on-behalf-of token exchange',
     'no production gateway deployment or enterprise R2 acceptance']}));
 }else{throw Error('usage: keycloak-oidc-smoke.mjs prepare|verify ROOT');}
