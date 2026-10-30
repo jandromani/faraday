@@ -79,6 +79,16 @@ jobs:
           R18_LAB_TOKEN: ${{ github.run_id }}-${{ github.sha }}-lab-only
         working-directory: agentic
         run: node scripts/r18-network-partition-smoke.mjs
+      - name: Diagnose CI failure without printing credentials
+        if: failure()
+        run: |
+          for name in faraday-r18-a faraday-r18-b; do
+            docker inspect --format '{{.Name}} {{.State.Status}} {{.State.ExitCode}}' "$name" || true
+            docker logs "$name" 2>&1 | tail -n 15 || true
+            curl --max-time 2 --fail --silent "http://127.0.0.1:$( [ "$name" = "faraday-r18-a" ] && echo 17811 || echo 17812 )/status" || true
+            echo
+          done
+          docker inspect --format '{{.Name}} {{.State.Status}} {{.State.ExitCode}}' faraday-r18-db || true
       - name: Destroy test-only workers, database and networks
         if: always()
         run: |
