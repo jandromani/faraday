@@ -7,28 +7,38 @@ import {join} from 'node:path';
 
 const command=String.raw`
 $ErrorActionPreference = 'Stop'
+$phase = 'initialize'
+trap { [Console]::Error.WriteLine('FARADAY-ACL-PHASE:'+$phase); exit 1 }
 $path = $env:FARADAY_ACL_PATH
 $mode = $env:FARADAY_ACL_MODE
 if ([string]::IsNullOrWhiteSpace($path) -or $mode -notin @('protect','verify')) { throw 'bad-input' }
+$phase='get-item'
 $item = Get-Item -LiteralPath $path -ErrorAction Stop
 if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'reparse-point' }
 $who = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $allowed = @($who,'S-1-5-18','S-1-5-32-544')
+$phase='get-acl'
 $acl = Get-Acl -LiteralPath $path
 if ($mode -eq 'protect') {
+  $phase='protect-inheritance'
   $acl.SetAccessRuleProtection($true,$false)
+  $phase='remove-access'
   foreach ($entry in @($acl.Access)) { [void]$acl.RemoveAccessRuleSpecific($entry) }
   $inherit = [Security.AccessControl.InheritanceFlags]::None
   if ($item.PSIsContainer) { $inherit = [Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [Security.AccessControl.InheritanceFlags]::ObjectInherit }
+  $phase='add-access'
   foreach ($id in $allowed) {
     $sid = [Security.Principal.SecurityIdentifier]::new($id)
     $ace = [Security.AccessControl.FileSystemAccessRule]::new($sid, [Security.AccessControl.FileSystemRights]::FullControl,
       $inherit,[Security.AccessControl.PropagationFlags]::None,[Security.AccessControl.AccessControlType]::Allow)
     [void]$acl.AddAccessRule($ace)
   }
+  $phase='set-acl'
   Set-Acl -LiteralPath $path -AclObject $acl -ErrorAction Stop
+  $phase='reopen-acl'
   $acl = Get-Acl -LiteralPath $path
 }
+$phase='verify-acl'
 if (-not $acl.AreAccessRulesProtected) { throw 'inherited-ace' }
 $aces = $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])
 $ownerFound = $false
@@ -62,13 +72,14 @@ function windowsAcl(path,mode) {
       path.endsWith('.mcp.json')?'active-config':
       path.endsWith('.json')?'private-backup':'other';
     const output=String(child.stderr||'')+' '+String(child.stdout||'');
+    const phase=output.match(/FARADAY-ACL-PHASE:(initialize|get-item|get-acl|protect-inheritance|remove-access|add-access|set-acl|reopen-acl|verify-acl)/)?.[1]||'unknown';
     const reason=/owner-not-authorized/.test(output)?'owner-not-authorized':
       /unexpected-ace/.test(output)?'unexpected-ace':
       /inherited-ace/.test(output)?'inherited-ace':
       /Access is denied|UnauthorizedAccessException/i.test(output)?'access-denied':
       /Cannot find path|ItemNotFoundException/.test(output)?'not-found':
       child.error?'launch-failure':'platform-acl-rejection';
-    process.stderr.write('[FARADAY ACL] '+mode+'/'+component+'/'+reason+'\\n');
+    process.stderr.write('[FARADAY ACL] '+mode+'/'+component+'/'+reason+'/'+phase+'\\n');
   }
   throw Error('Windows backup ACL protection is not verified');
  }
