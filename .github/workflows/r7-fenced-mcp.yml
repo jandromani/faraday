@@ -1,0 +1,54 @@
+name: FARADAY R7 Real MCP PostgreSQL Fencing
+on:
+  pull_request:
+    paths:
+      - 'agentic/lib/postgres-fenced-store.js'
+      - 'agentic/lib/pilot-backend.js'
+      - 'agentic/lib/pilot-mcp.js'
+      - 'agentic/scripts/r7-fenced-mcp-smoke.mjs'
+      - '.github/workflows/r7-fenced-mcp.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'agentic/lib/postgres-fenced-store.js'
+      - 'agentic/lib/pilot-backend.js'
+      - 'agentic/lib/pilot-mcp.js'
+      - 'agentic/scripts/r7-fenced-mcp-smoke.mjs'
+      - '.github/workflows/r7-fenced-mcp.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  fenced-mcp:
+    name: Real protected MCP / PostgreSQL fenced backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Start disposable official PostgreSQL
+        run: |
+          docker run -d --rm --name faraday-r7-postgres \
+            -e POSTGRES_HOST_AUTH_METHOD=trust -e POSTGRES_USER=faraday \
+            -e POSTGRES_DB=faraday postgres:17
+          for i in $(seq 1 40); do
+            if docker exec faraday-r7-postgres pg_isready -U faraday -d faraday -q; then exit 0; fi
+            sleep 1
+          done
+          echo 'PostgreSQL unavailable'; exit 1
+      - name: Two independently credentialed gateways, backend and PostgreSQL
+        working-directory: agentic
+        run: node scripts/r7-fenced-mcp-smoke.mjs
+      - name: Existing real MCP receipt and replay regressions
+        working-directory: agentic
+        run: node --test tests/pilot.test.js
+      - name: Dispose of official PostgreSQL
+        if: always()
+        run: docker rm -f faraday-r7-postgres || true
