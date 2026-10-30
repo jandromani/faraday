@@ -132,6 +132,12 @@ if(process.argv[2]==='prepare'){
   tokenProfile:'keycloak-oidc',allowedClientIds:['faraday-r5']});
  const humanResource=new PinnedOAuthResource({issuer,resource,publicJwks:[publicJwk],
   tokenProfile:'keycloak-oidc',allowedClientIds:['faraday-human-lab']});
+ const humanClaims=JSON.parse(Buffer.from(humanBearer.split('.')[1],'base64url').toString('utf8'));
+ console.log(JSON.stringify({kind:'r19-oidc-test-user-profile',hasSubject:typeof humanClaims.sub==='string',
+  signedClientMatch:humanClaims.azp==='faraday-human-lab',
+  signedAudienceMatch:humanClaims.aud===resource||Array.isArray(humanClaims.aud)&&humanClaims.aud.includes(resource),
+  signedScopeMatch:typeof humanClaims.scope==='string'&&humanClaims.scope.split(' ').includes('faraday:delegate'),
+  tokenHeaderTyp:JSON.parse(Buffer.from(humanBearer.split('.')[0],'base64url').toString('utf8')).typ}));
  const humanIdentity=humanResource.verifyAuthorization('Bearer '+humanBearer,'faraday:delegate');
  assert.equal(humanIdentity.clientId,'faraday-human-lab');
  assert.ok(humanIdentity.subject&&!humanIdentity.subject.startsWith('service-account-'));
