@@ -10,7 +10,16 @@ import * as PublicConnect from '@faraday/agentic/connect';
 import * as PublicAuthority from '@faraday/agentic/authority-suite';
 import * as PublicEvidence from '@faraday/agentic/evidence';
 import * as PublicLab from '@faraday/agentic/lab-suite';
+import * as PublicNative from '@faraday/agentic/native-pg-fencing';
+import * as PublicLease from '@faraday/agentic/native-pg-lease';
+import * as PublicDelegation from '@faraday/agentic/delegation-chain';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+test('Native PostgreSQL and signed delegation exports remain usable without a pg dependency at import time',()=>{
+ assert.equal(typeof PublicNative.createNativePgFencedExecutor,'function');
+ assert.equal(typeof PublicNative.createTlsVerifiedNativePgPool,'function');
+ assert.equal(typeof PublicLease.createNativePgLeaseCoordinator,'function');
+ assert.equal(typeof PublicDelegation.verifyDelegationChain,'function');
+});
 test('Four migration API surfaces bind to real existing implementations',()=>{
   assert.equal(typeof Connect.installProxy,'function');assert.equal(typeof Connect.probeStdio,'function');
   assert.equal(typeof Authority.AuthorityGate,'function');assert.equal(typeof Authority.PinnedOAuthResource,'function');assert.equal(typeof Authority.LocalOAuthRevocations,'function');assert.equal(typeof Authority.createStrictSecretFileProvider,'function');
