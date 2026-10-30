@@ -5,9 +5,6 @@ on:
       - 'agentic/**'
       - '.github/workflows/epic-closure.yml'
   pull_request:
-    paths:
-      - 'agentic/**'
-      - '.github/workflows/epic-closure.yml'
   workflow_dispatch:
 permissions:
   contents: read
