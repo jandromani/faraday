@@ -39,6 +39,11 @@ jobs:
     uses: ./.github/workflows/r15-adversarial.yml
     permissions:
       contents: read
+  required-network-partition:
+    name: R18 real two-node network partition
+    uses: ./.github/workflows/r18-network-partition.yml
+    permissions:
+      contents: read
   mandatory-security-gate:
     name: FARADAY mandatory Node Docker Vault and MCP
     runs-on: ubuntu-latest
@@ -88,7 +93,7 @@ jobs:
     # The existing GitHub master ruleset requires security (3.11/3.12/3.13).
     # A skipped required check can be treated as green, so ALWAYS run the
     # Python matrix and fail it if the shared mandatory gate did not succeed.
-    needs: [mandatory-security-gate, mandatory-keycloak, mandatory-postgres, required-native-pg, required-lease-expiry, required-delegation, required-adversarial]
+    needs: [mandatory-security-gate, mandatory-keycloak, mandatory-postgres, required-native-pg, required-lease-expiry, required-delegation, required-adversarial, required-network-partition]
     if: always()
     runs-on: ubuntu-latest
     strategy:
@@ -96,9 +101,9 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - name: Refuse merge if Node, Docker, Vault or MCP gate is not green
-        if: ${{ needs['mandatory-security-gate'].result != 'success' || needs['mandatory-keycloak'].result != 'success' || needs['mandatory-postgres'].result != 'success' || needs['required-native-pg'].result != 'success' || needs['required-lease-expiry'].result != 'success' || needs['required-delegation'].result != 'success' || needs['required-adversarial'].result != 'success' }}
+        if: ${{ needs['mandatory-security-gate'].result != 'success' || needs['mandatory-keycloak'].result != 'success' || needs['mandatory-postgres'].result != 'success' || needs['required-native-pg'].result != 'success' || needs['required-lease-expiry'].result != 'success' || needs['required-delegation'].result != 'success' || needs['required-adversarial'].result != 'success' || needs['required-network-partition'].result != 'success' }}
         run: |
-          echo "FARADAY R11–R15 required identity, native PostgreSQL, leases, delegation or adversarial gate did not succeed"
+          echo "FARADAY R11–R18 required identity, native PostgreSQL, leases, delegation, adversarial or physical network-partition gate did not succeed"
           exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
