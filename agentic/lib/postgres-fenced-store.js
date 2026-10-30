@@ -31,7 +31,7 @@ export class PostgresFencedSyntheticStore {
      !/^[1-9][0-9]{0,14}$/.test(body.fenceEpoch??''))return {http:403,status:'fixture-denied'};
   const requestHash=digest({tool:body.tool,resource:body.resource,action:body.action,args:body.args});
   const variables={scope:this.scope,owner:body.fenceOwner,epoch:body.fenceEpoch,
-   operation:body.operationId,digest:requestHash};
+   operation:body.operationId,digest:Buffer.from(requestHash,'base64url').toString('hex')};
   let outcome;
   try{outcome=(await this.executeSql(R5_APPLY_SQL,variables)).trim();}
   catch{return {http:503,status:'storage-unavailable'};}
@@ -61,7 +61,7 @@ export class PostgresFencedSyntheticStore {
   const fields=out.split('|');
   if(fields.length!==3||!/^[a-f0-9]{64}$/.test(fields[0])||
      fields[1]!=='simulated'||!/^[0-9]{13,16}$/.test(fields[2]))throw Error('invalid-fenced-record');
-  return {request_hash:fields[0],status:'simulated',occurred_at:Number(fields[2])};
+  return {request_hash:Buffer.from(fields[0],'hex').toString('base64url'),status:'simulated',occurred_at:Number(fields[2])};
  }
  async count(){
   const result=(await this.executeSql(R5_COUNT_SQL,{scope:this.scope})).trim();
