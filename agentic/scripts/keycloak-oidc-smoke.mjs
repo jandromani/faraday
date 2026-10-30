@@ -207,6 +207,74 @@ if(process.argv[2]==='prepare'){
   await approle.renew();
   assert.equal(await ask(good,'tools/call',{name:'pay_invoice',arguments:ARGS},renewalHeaders),200);
   assert.equal(store.count(),2);
+  // Keycloak real test-user JWT is verified at GRANT issuance and at every
+  // delegated tool execution, not used to impersonate an agent directly.
+  const operatorKey=newIdentity();
+  let humanRevoked=false;
+  const delegated=createVerifiedOidcDelegation({
+   oauthResource:humanResource,issuerPrivatePem:operatorKey.privatePem,
+   issuerPublicPem:operatorKey.publicPem,allowedUserClients:['faraday-human-lab'],
+   authorizeSubject:({subject,clientId})=>!humanRevoked&&subject===humanIdentity.subject&&clientId==='faraday-human-lab',
+   agentPublicKeys:{[AGENT]:f.agent.publicPem},revoked:()=>false});
+  const rootGrant=delegated.issue({authorizationHeader:'Bearer '+humanBearer,
+   agent:AGENT,scope:{tool:TOOL,resource:RESOURCE,action:ACTION,maxAmountCents:ARGS.amount_cents}});
+  assert.equal(delegated.verify({authorizationHeader:'Bearer '+humanBearer,chain:[rootGrant],
+   expected:{agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,
+    amountCents:ARGS.amount_cents}}).agent,AGENT);
+  const child='faraday://r19/child';
+  const childGrant=delegateNarrower({fromAgent:AGENT,toAgent:child,
+   fromPrivatePem:f.agent.privatePem,parent:rootGrant,
+   maxAmountCents:Math.max(1,Math.floor(ARGS.amount_cents/2))});
+  delegated.verify({authorizationHeader:'Bearer '+humanBearer,chain:[rootGrant,childGrant],
+   expected:{agent:child,tool:TOOL,resource:RESOURCE,action:ACTION,
+    amountCents:Math.max(1,Math.floor(ARGS.amount_cents/2))}});
+  assert.throws(()=>delegated.verify({authorizationHeader:'Bearer '+humanBearer,
+   chain:[rootGrant,childGrant],expected:{agent:child,tool:TOOL,resource:RESOURCE,
+    action:ACTION,amountCents:ARGS.amount_cents+1}}),/delegation-denied/);
+  const humanGateway=createSecurePilotGateway({gate:f.gate,backendUrl,
+   allowInsecureBackend:true,backendSecretProvider:approle.provider,
+   journal,receiptPrivatePem:receiptKey.privatePem,backendPublicPem:backendKey.publicPem,
+   oauthResource:humanResource,delegationVerifier:delegated});
+  await new Promise(resolve=>humanGateway.listen(0,'127.0.0.1',resolve));
+  try{
+   const humUrl='http://127.0.0.1:'+humanGateway.address().port+'/mcp';
+   const humanCall=async(jwt,headers,argumentsObj=ARGS)=>{
+    const response=await fetch(humUrl,{method:'POST',headers:{'content-type':'application/json',
+     'mcp-protocol-version':'2026-07-28','mcp-method':'tools/call','mcp-name':'pay_invoice',
+     authorization:'Bearer '+jwt,...headers},
+     body:JSON.stringify({jsonrpc:'2.0',id:7,method:'tools/call',params:{name:TOOL,
+      arguments:argumentsObj,_meta:{'io.modelcontextprotocol/protocolVersion':'2026-07-28'}}})});
+    await response.body?.cancel();return response.status;
+   };
+   const nowHuman=Math.floor(Date.now()/1000);
+   const intentHuman=createIntent({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,
+    args:ARGS,agentPrivatePem:f.agent.privatePem,now:nowHuman});
+   const capHuman=f.iss.issue(intentHuman);
+   const proofHuman=createExecution({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,
+    args:ARGS,capability:capHuman,agentPrivatePem:f.agent.privatePem,now:nowHuman});
+   const baseHeaders={'x-faraday-capability':capHuman,
+    'x-faraday-proof':Buffer.from(JSON.stringify(proofHuman)).toString('base64url')};
+   assert.equal(await humanCall(humanBearer,baseHeaders),403,'human JWT alone cannot authorize');
+   const delegatedHeaders={...baseHeaders,
+    'x-faraday-delegation':Buffer.from(JSON.stringify([rootGrant])).toString('base64url')};
+   assert.equal(await humanCall(good,delegatedHeaders),401,'service JWT cannot substitute for user');
+   assert.equal(await humanCall(humanBearer,delegatedHeaders,{...ARGS,amount_cents:ARGS.amount_cents+1}),403);
+   assert.equal(await humanCall(humanBearer,delegatedHeaders),200);
+   assert.equal(store.count(),3,'one permitted human-backed synthetic effect');
+   assert.equal(await humanCall(humanBearer,delegatedHeaders),403,'spent capability must never replay');
+   humanRevoked=true;
+   const newHumanIntent=createIntent({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,
+    args:ARGS,agentPrivatePem:f.agent.privatePem,now:nowHuman});
+   const newHumanCap=f.iss.issue(newHumanIntent);
+   const newHumanProof=createExecution({agent:AGENT,tool:TOOL,resource:RESOURCE,action:ACTION,
+    args:ARGS,capability:newHumanCap,agentPrivatePem:f.agent.privatePem,now:nowHuman});
+   const revokedHeaders={'x-faraday-capability':newHumanCap,
+    'x-faraday-proof':Buffer.from(JSON.stringify(newHumanProof)).toString('base64url'),
+    'x-faraday-delegation':Buffer.from(JSON.stringify([rootGrant])).toString('base64url')};
+   assert.equal(await humanCall(humanBearer,revokedHeaders),403,'revoked human permission must fail');
+   assert.equal(store.count(),3);
+  }finally{humanGateway.closeAllConnections();
+   await new Promise(resolve=>humanGateway.close(resolve));}
   // A valid provider token is insufficient to bypass the backend's independent credential.
   const unauth=await fetch(backendUrl,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({})});
   assert.equal(unauth.status,401);await unauth.body?.cancel();
@@ -225,10 +293,13 @@ if(process.argv[2]==='prepare'){
     'independent-signed-backend-attestation','receipt-independently-verified',
     'argument-tampering-denied','capability-replay-denied','direct-backend-without-credential-denied',
     'vault-scoped-approle-secret-in-gateway','deny-other-vault-path',
-    'vault-token-revocation-before-effect','scoped-token-reissue-recovers'],
+    'vault-token-revocation-before-effect','scoped-token-reissue-recovers','keycloak-real-test-user-token',
+    'user-token-operator-signed-root','signed-hop-scope-attenuation',
+    'user-delegation-mcp-effect','service-token-cannot-use-user-grant',
+    'user-delegation-revocation-denies'],
   issuerType:'official-keycloak',clientCredentialsFrom:'runtime-generated-CI-fixture',
   limitations:['Keycloak development-mode only','test-only certificate and realm',
-    'no production SSO, token exchange or agent delegation attestation',
+    'user test uses lab-only password grant, NOT production OIDC authorization code / PKCE or token exchange',
     'real MCP synthetic execution with issuer-signed machine identity and operator-mapped agent, not token exchange or user delegation',
     'no production gateway deployment or enterprise R2 acceptance']}));
 }else{throw Error('usage: keycloak-oidc-smoke.mjs prepare|verify ROOT');}
